@@ -1,4 +1,6 @@
-# drive-viewer 計画
+# drive-viewer 計画（初期案・2026-11-15）
+
+> この文書は最初の計画として残す。現在の仕様は design/SPEC.md、作りは design/DESIGN.md、判断は design/adr/ が正。
 
 スマホ（iPhone中心、Androidでも動く）で、エージェントが書いたGoogleドライブ上のファイルをすぐ開くためのPWA。
 

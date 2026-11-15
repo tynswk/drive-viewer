@@ -16,26 +16,25 @@
   --ink: #1f2328;
   --ink-2: #646b75;
   --line: #e4e6ea;
-  --fresh: #b8760f;       /* 琥珀：更新されたばかり（明るい地ではコントラストのため濃く） */
-  --fresh-bg: #fbf1df;
+  --fresh: #b8760f;
   --focus: #2f6fdf;
   --target: 44px;
   --pad: 16px;
   --bar: 52px;
-  --ease: cubic-bezier(.2, .7, .2, 1);
+  --mini: 64px;
+  --t: 150ms;                               /* 標準の速さ（前回の約2倍速） */
+  --t-fast: 110ms;
+  --out: cubic-bezier(.22, 1, .36, 1);      /* イーズアウト */
+  --shadow: 0 10px 30px rgba(0,0,0,.18), 0 0 0 1px var(--line);
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --paper: #1b1e23;
-    --paper-2: #23272d;
-    --ink: #e9eaec;
-    --ink-2: #9aa1ab;
-    --line: #2e333a;
-    --fresh: #e3a23f;
-    --fresh-bg: #3a2e1a;
-    --focus: #7aa7ff;
+    --paper: #1b1e23; --paper-2: #24282e; --ink: #e9eaec; --ink-2: #9aa1ab;
+    --line: #2e333a; --fresh: #e3a23f; --focus: #7aa7ff;
+    --shadow: 0 10px 30px rgba(0,0,0,.5), 0 0 0 1px var(--line);
   }
 }
+@media (prefers-reduced-motion: reduce) { :root { --t: 0ms; --t-fast: 0ms; } }
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 html, body { height: 100%; margin: 0; }
@@ -43,31 +42,16 @@ body {
   background: var(--paper); color: var(--ink);
   font: 100%/1.5 -apple-system, "Hiragino Sans", "Hiragino Kaku Gothic ProN", system-ui, sans-serif;
   -webkit-text-size-adjust: 100%;
-  overflow: hidden;
 }
 @supports (font: -apple-system-body) { html { font: -apple-system-body; } }
-button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; -webkit-tap-highlight-color: transparent; }
 :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 6px; }
 svg.i { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; flex: none; }
 
-/* ===== stack（横スクロールスナップで積む。戻るはスワイプ） ===== */
-.stack {
-  position: fixed; inset: 0;
-  display: flex; overflow-x: auto; overflow-y: hidden;
-  scroll-snap-type: x mandatory; overscroll-behavior-x: contain;
-  scrollbar-width: none;
-}
-.stack::-webkit-scrollbar { display: none; }
-@media (prefers-reduced-motion: no-preference) { .stack { scroll-behavior: smooth; } }
-.view {
-  flex: 0 0 100%; height: 100%;
-  scroll-snap-align: start; scroll-snap-stop: always;
-  overflow-y: auto; overscroll-behavior-y: contain;
-  background: var(--paper);
-  padding-bottom: calc(var(--bar) + env(safe-area-inset-bottom) + 24px);
-}
+/* ===== page（タブの中身。ページ遷移はしない） ===== */
+.page { min-height: 100%; padding-bottom: calc(var(--bar) + env(safe-area-inset-bottom) + 24px); }
+body.has-mini .page { padding-bottom: calc(var(--bar) + var(--mini) + env(safe-area-inset-bottom) + 32px); }
 
-/* ===== top bar ===== */
 .top {
   position: sticky; top: 0; z-index: 2;
   display: flex; align-items: center; gap: 4px;
@@ -77,7 +61,7 @@ svg.i { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-widt
   -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
   border-bottom: 1px solid transparent;
 }
-.view.scrolled .top { border-bottom-color: var(--line); }
+.top.scrolled { border-bottom-color: var(--line); }
 .top .title { flex: 1; min-width: 0; font-weight: 600; font-size: 1.0625rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .icon-btn { display: inline-grid; place-items: center; min-width: var(--target); min-height: var(--target); border-radius: 10px; color: var(--ink); }
 .icon-btn:active { background: var(--paper-2); }
@@ -85,41 +69,57 @@ svg.i { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-widt
 .scope:active { background: var(--paper-2); }
 .scope svg { width: 16px; height: 16px; color: var(--ink-2); }
 
-/* ===== list ===== */
+/* ===== 一覧の行 ===== */
 .group-h {
   position: sticky; top: calc(var(--bar) + env(safe-area-inset-top)); z-index: 1;
-  padding: 14px var(--pad) 6px; font-size: .8125rem; color: var(--ink-2);
+  margin: 0; padding: 14px var(--pad) 6px; font-size: .8125rem; font-weight: 400; color: var(--ink-2);
   background: var(--paper);
 }
 .rows { list-style: none; margin: 0; padding: 0; }
 .row {
   display: grid; grid-template-columns: 28px 1fr auto; column-gap: 12px; align-items: center;
   width: 100%; min-height: 60px; padding: 8px var(--pad); text-align: left;
-  content-visibility: auto; contain-intrinsic-size: auto 60px;
+  transition: background-color var(--t-fast) var(--out);
 }
 .row:active { background: var(--paper-2); }
-.row + .row { box-shadow: inset 0 1px 0 var(--line); }
+.rows > li + li > .row { box-shadow: inset 0 1px 0 var(--line); }
 .row .ico { color: var(--ink-2); display: grid; place-items: center; }
 .row .name { font-size: 1rem; word-break: break-all; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.row .path { font-size: .8125rem; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.row time { font-size: .8125rem; color: var(--ink-2); font-variant-numeric: tabular-nums; white-space: nowrap; align-self: start; padding-top: 2px; }
+.row .path { display: block; font-size: .8125rem; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row time { font-size: .8125rem; color: var(--ink-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .row.fresh time { color: var(--fresh); font-weight: 600; }
 .row.fresh time::before { content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--fresh); margin-right: 6px; vertical-align: 2px; }
 .row.warm time { color: var(--fresh); }
+.row.playing .ico { color: var(--fresh); }
 
 /* 新着ピル */
-.pill {
-  position: sticky; top: calc(var(--bar) + env(safe-area-inset-top) + 8px); z-index: 3;
-  display: flex; justify-content: center; height: 0; overflow: visible;
-}
+.pill { position: sticky; top: calc(var(--bar) + env(safe-area-inset-top) + 8px); z-index: 3; display: flex; justify-content: center; height: 0; }
 .pill button {
-  height: 36px; padding: 0 14px; border-radius: 18px;
-  background: var(--fresh); color: #1b1300; font-size: .875rem; font-weight: 600;
-  display: inline-flex; align-items: center; gap: 6px;
-  translate: 0 -60px; opacity: 0; transition: translate .3s var(--ease), opacity .2s;
+  height: 36px; padding: 0 14px; border-radius: 18px; background: var(--fresh); color: #1b1300;
+  font-size: .875rem; font-weight: 600; display: inline-flex; align-items: center; gap: 6px;
+  translate: 0 -60px; opacity: 0; transition: translate var(--t) var(--out), opacity var(--t-fast) var(--out);
 }
 .pill.show button { translate: 0 0; opacity: 1; }
 .pill svg { width: 16px; height: 16px; }
+
+/* ===== ツリー（フォルダ）。一画面で下に連なる ===== */
+.tree, .tree ul { list-style: none; margin: 0; padding: 0; }
+.node > .row { grid-template-columns: 20px 24px 1fr auto; column-gap: 8px; padding-left: calc(var(--pad) - 6px + var(--depth, 0) * 18px); min-height: 48px; }
+.node > .row .chev { color: var(--ink-2); display: grid; place-items: center; transition: rotate var(--t) var(--out); }
+.node > .row .chev svg { width: 16px; height: 16px; }
+.node.open > .row .chev { rotate: 90deg; }
+.node.open > .row .ico { color: var(--ink); }
+.node.file > .row { min-height: 52px; }
+.node .count { font-size: .8125rem; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.kids { display: grid; grid-template-rows: 0fr; transition: grid-template-rows var(--t) var(--out); }
+.node.open > .kids { grid-template-rows: 1fr; }
+.kids > ul { min-height: 0; overflow: hidden; position: relative; }
+.kids > ul::before { /* 階層の縦線＝構造の情報 */
+  content: ""; position: absolute; top: 0; bottom: 8px;
+  left: calc(var(--pad) + 3px + var(--depth, 0) * 18px); border-left: 1px solid var(--line);
+}
+.tree-sep { padding: 18px var(--pad) 6px; font-size: .8125rem; color: var(--ink-2); }
+.empty-node { padding: 8px var(--pad) 10px calc(var(--pad) + 52px + var(--depth, 0) * 18px); font-size: .8125rem; color: var(--ink-2); }
 
 /* ===== bottom tabs ===== */
 .tabs {
@@ -129,16 +129,25 @@ svg.i { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-widt
   background: color-mix(in srgb, var(--paper) 92%, transparent);
   -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
   border-top: 1px solid var(--line);
-  transition: translate .25s var(--ease);
 }
-.tabs.hide { translate: 0 110%; }
 .tabs button { min-height: var(--bar); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: .6875rem; color: var(--ink-2); }
 .tabs button[aria-current="page"] { color: var(--ink); }
 .tabs button[aria-current="page"] svg { stroke-width: 2.25; }
 
-/* ===== viewer ===== */
+/* ===== シート（タップした行から広がって覆う） ===== */
+.sheet {
+  position: fixed; inset: 0; z-index: 10;
+  display: flex; flex-direction: column;
+  background: var(--paper);
+  overflow: hidden;
+}
+.sheet .scroll { flex: 1; overflow-y: auto; overscroll-behavior-y: contain; padding-bottom: calc(env(safe-area-inset-bottom) + 24px); }
+body.has-mini .sheet:not(.media) .scroll { padding-bottom: calc(var(--mini) + env(safe-area-inset-bottom) + 32px); }
+.sheet .top { position: relative; touch-action: none; }  /* ヘッダを掴んで下へ払うと閉じる */
+.sheet .top::before { content: ""; position: absolute; left: 50%; top: calc(env(safe-area-inset-top) + 5px); width: 36px; height: 4px; margin-left: -18px; border-radius: 2px; background: var(--line); }
+
 .seg { display: inline-flex; padding: 2px; border-radius: 9px; background: var(--paper-2); }
-.seg button { min-height: 32px; padding: 0 12px; border-radius: 7px; font-size: .875rem; color: var(--ink-2); }
+.seg button { min-height: 32px; padding: 0 12px; border-radius: 7px; font-size: .875rem; color: var(--ink-2); transition: background-color var(--t-fast) var(--out), color var(--t-fast) var(--out); }
 .seg button[aria-pressed="true"] { background: var(--paper); color: var(--ink); box-shadow: 0 0 0 1px var(--line); }
 .subbar { display: flex; align-items: center; gap: 8px; padding: 6px var(--pad) 10px; }
 .subbar .meta { flex: 1; font-size: .8125rem; color: var(--ink-2); }
@@ -157,40 +166,64 @@ svg.i { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-widt
 .edit {
   display: block; width: 100%; min-height: 70vh; border: 0; outline: 0; resize: none;
   padding: 4px var(--pad) 24px; background: var(--paper); color: var(--ink);
-  font: .875rem/1.65 ui-monospace, "SF Mono", Menlo, monospace;
-  field-sizing: content;
+  font: .875rem/1.65 ui-monospace, "SF Mono", Menlo, monospace; field-sizing: content;
 }
-.editbar {
-  position: sticky; bottom: 0; display: flex; gap: 8px; justify-content: flex-end;
-  padding: 8px var(--pad) calc(8px + env(safe-area-inset-bottom));
-  background: var(--paper); border-top: 1px solid var(--line);
-}
+.editbar { display: flex; gap: 8px; justify-content: flex-end; padding: 8px var(--pad) calc(8px + env(safe-area-inset-bottom)); background: var(--paper); border-top: 1px solid var(--line); }
 .btn { min-height: var(--target); padding: 0 18px; border-radius: 10px; font-weight: 600; }
 .btn.ghost { color: var(--ink-2); }
 .btn.solid { background: var(--ink); color: var(--paper); }
 
+.frame { display: block; width: 100%; height: calc(100dvh - var(--bar) - 60px - env(safe-area-inset-top)); border: 0; background: #fff; }
+.pdf { padding: 0 var(--pad); display: grid; gap: 12px; }
+.pdf .pg { aspect-ratio: 1 / 1.414; background: #fff; border-radius: 4px; box-shadow: 0 0 0 1px var(--line); padding: 10%; color: #222; font-size: .75rem; }
+.pdf .pg i { display: block; height: .6em; margin: .8em 0; background: #ddd; border-radius: 2px; }
+.pageno { position: sticky; bottom: 16px; margin: 0 var(--pad) 0 auto; width: max-content; padding: 4px 10px; border-radius: 12px; background: color-mix(in srgb, var(--ink) 80%, transparent); color: var(--paper); font-size: .75rem; font-variant-numeric: tabular-nums; }
+
+/* ===== メディア：全画面 ⇄ ミニバー ===== */
 .player { padding: 0 var(--pad); }
-.player video, .player audio { display: block; width: 100%; border-radius: 10px; background: #000; }
-.player video { aspect-ratio: 16 / 9; }
+.player .stage { position: relative; border-radius: 10px; overflow: hidden; background: #000; }
+.player video { display: block; width: 100%; aspect-ratio: 16 / 9; background: #000; }
+.player .stage.audio { background: var(--paper-2); padding: 28px 12px 12px; }
+.player .stage.audio .art { display: grid; place-items: center; height: 120px; color: var(--ink-2); }
+.player .stage.audio .art svg { width: 48px; height: 48px; stroke-width: 1.25; }
+.player audio { display: block; width: 100%; }
 .chips { display: flex; gap: 6px; padding: 12px 0; overflow-x: auto; scrollbar-width: none; }
-.chips button { min-height: 36px; min-width: 52px; padding: 0 10px; border-radius: 18px; border: 1px solid var(--line); font-size: .875rem; font-variant-numeric: tabular-nums; color: var(--ink-2); }
+.chips button { min-height: 36px; min-width: 52px; padding: 0 10px; border-radius: 18px; border: 1px solid var(--line); font-size: .875rem; font-variant-numeric: tabular-nums; color: var(--ink-2); transition: border-color var(--t-fast) var(--out), color var(--t-fast) var(--out); }
 .chips button[aria-pressed="true"] { border-color: var(--ink); color: var(--ink); font-weight: 600; }
 .kv { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; margin: 8px 0 0; font-size: .875rem; }
 .kv dt { color: var(--ink-2); }
 .kv dd { margin: 0; word-break: break-all; }
 
-.frame { display: block; width: 100%; height: calc(100dvh - var(--bar) - 60px - env(safe-area-inset-top)); border: 0; background: #fff; }
+.mini-ui { display: none; }
+.sheet.media { z-index: 20; }
+.sheet.media.mini {
+  inset: auto 8px calc(var(--bar) + env(safe-area-inset-bottom) + 8px) 8px;
+  height: var(--mini); border-radius: 12px; box-shadow: var(--shadow);
+  flex-direction: row; align-items: center; touch-action: none;
+}
+body.sheet-open .sheet.media.mini { bottom: calc(env(safe-area-inset-bottom) + 8px); }
+.sheet.media.mini > .top, .sheet.media.mini .subbar, .sheet.media.mini .chips, .sheet.media.mini .kv { display: none; }
+.sheet.media.mini .scroll { flex: none; overflow: visible; padding: 0; }
+.sheet.media.mini .player { padding: 0 0 0 8px; }
+.sheet.media.mini .stage { width: 86px; height: 48px; border-radius: 6px; padding: 0; }
+.sheet.media.mini video { width: 86px; height: 48px; aspect-ratio: auto; }
+.sheet.media.mini .stage.audio { display: grid; place-items: center; }
+.sheet.media.mini .stage.audio .art { height: auto; }
+.sheet.media.mini .stage.audio .art svg { width: 22px; height: 22px; }
+.sheet.media.mini audio { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.sheet.media.mini .mini-ui { display: flex; flex: 1; min-width: 0; align-items: center; gap: 2px; padding: 0 4px 0 12px; height: 100%; }
+.mini-ui .mt { flex: 1; min-width: 0; text-align: left; height: 100%; display: flex; flex-direction: column; justify-content: center; }
+.mini-ui .mt b { font-weight: 600; font-size: .9375rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mini-ui .mt span { font-size: .75rem; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.mini-ui .prog { position: absolute; left: 0; bottom: 0; height: 2px; background: var(--fresh); width: 0; }
 
-.pdf { padding: 0 var(--pad); display: grid; gap: 12px; }
-.pdf .page { aspect-ratio: 1 / 1.414; background: #fff; border-radius: 4px; box-shadow: 0 0 0 1px var(--line); padding: 10%; color: #222; font-size: .75rem; }
-.pdf .page i { display: block; height: .6em; margin: .8em 0; background: #ddd; border-radius: 2px; }
-.pageno { position: sticky; bottom: calc(16px + env(safe-area-inset-bottom)); margin-left: auto; margin-right: var(--pad); width: max-content; padding: 4px 10px; border-radius: 12px; background: color-mix(in srgb, var(--ink) 80%, transparent); color: var(--paper); font-size: .75rem; font-variant-numeric: tabular-nums; }
-
-/* ===== popover / toast ===== */
-[popover] { border: 0; padding: 6px; border-radius: 14px; background: var(--paper); color: var(--ink); box-shadow: 0 8px 28px rgba(0,0,0,.18), 0 0 0 1px var(--line); min-width: 240px; }
-[popover]::backdrop { background: rgba(0,0,0,.08); }
-#scopeMenu { position: fixed; inset: auto; top: calc(var(--bar) + env(safe-area-inset-top) + 4px); left: 8px; margin: 0; }
-#moreMenu { position: fixed; inset: auto; top: calc(var(--bar) + env(safe-area-inset-top) + 4px); right: 8px; margin: 0; }
+/* ===== popover / toast / dialog ===== */
+[popover] { border: 0; padding: 6px; border-radius: 14px; background: var(--paper); color: var(--ink); box-shadow: var(--shadow); min-width: 240px; }
+#scopeMenu, #moreMenu { position: fixed; inset: auto; top: calc(var(--bar) + env(safe-area-inset-top) + 4px); margin: 0; transform-origin: top left;
+  opacity: 0; scale: .96; transition: opacity var(--t-fast) var(--out), scale var(--t-fast) var(--out), display var(--t-fast) allow-discrete, overlay var(--t-fast) allow-discrete; }
+#scopeMenu { left: 8px; } #moreMenu { right: 8px; transform-origin: top right; z-index: 40; }
+#scopeMenu:popover-open, #moreMenu:popover-open { opacity: 1; scale: 1; }
+@starting-style { #scopeMenu:popover-open, #moreMenu:popover-open { opacity: 0; scale: .96; } }
 .menu button { display: flex; align-items: center; gap: 12px; width: 100%; min-height: var(--target); padding: 0 12px; border-radius: 9px; text-align: left; }
 .menu button:active { background: var(--paper-2); }
 .menu .check { margin-left: auto; color: var(--fresh); }
@@ -198,16 +231,17 @@ svg.i { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-widt
 .menu .path { padding: 8px 12px; font-size: .8125rem; color: var(--ink-2); word-break: break-all; }
 
 .toast {
-  position: fixed; left: 50%; bottom: calc(16px + env(safe-area-inset-bottom)); z-index: 10;
-  display: flex; align-items: center; gap: 4px; padding: 4px 4px 4px 16px;
-  border-radius: 14px; background: var(--ink); color: var(--paper);
-  font-size: .9375rem; white-space: nowrap; width: max-content; translate: -50% 140%; transition: translate .3s var(--ease);
-  max-width: calc(100% - 32px);
+  position: fixed; left: 50%; bottom: calc(var(--bar) + 16px + env(safe-area-inset-bottom)); z-index: 30;
+  display: flex; align-items: center; gap: 4px; padding: 4px 4px 4px 16px; border-radius: 14px;
+  background: var(--ink); color: var(--paper); font-size: .9375rem; white-space: nowrap; width: max-content; max-width: calc(100% - 32px);
+  translate: -50% 16px; opacity: 0; pointer-events: none;
+  transition: translate var(--t) var(--out), opacity var(--t-fast) var(--out);
 }
-.toast.show { translate: -50% 0; }
+body.has-mini .toast { bottom: calc(var(--bar) + var(--mini) + 24px + env(safe-area-inset-bottom)); }
+.toast.show { translate: -50% 0; opacity: 1; pointer-events: auto; }
 .toast button { min-height: 40px; padding: 0 12px; border-radius: 10px; color: var(--fresh); font-weight: 600; }
 
-dialog { border: 0; border-radius: 16px; padding: 20px; max-width: min(340px, calc(100% - 32px)); background: var(--paper); color: var(--ink); box-shadow: 0 12px 40px rgba(0,0,0,.25); }
+dialog { border: 0; border-radius: 16px; padding: 20px; max-width: min(340px, calc(100% - 32px)); background: var(--paper); color: var(--ink); box-shadow: var(--shadow); }
 dialog::backdrop { background: rgba(0,0,0,.35); }
 dialog h3 { margin: 0 0 6px; font-size: 1.0625rem; }
 dialog p { margin: 0 0 16px; color: var(--ink-2); font-size: .9375rem; line-height: 1.6; }
@@ -215,16 +249,15 @@ dialog .acts { display: grid; gap: 8px; }
 
 .search { padding: 0 var(--pad) 8px; }
 .search input { width: 100%; min-height: var(--target); border: 0; border-radius: 10px; background: var(--paper-2); color: var(--ink); padding: 0 12px; font: inherit; }
-.empty { padding: 48px var(--pad); color: var(--ink-2); text-align: center; }
 </style>
 </head>
 <body>
 
-<div class="stack" id="stack"></div>
+<main id="main"></main>
 
 <nav class="tabs" id="tabs" aria-label="表示の切り替え">
   <button data-tab="recent" aria-current="page"><svg class="i"><use href="#i-clock"/></svg>最近</button>
-  <button data-tab="folders"><svg class="i"><use href="#i-folder"/></svg>フォルダ</button>
+  <button data-tab="folders" aria-current="false"><svg class="i"><use href="#i-folder"/></svg>フォルダ</button>
 </nav>
 
 <div popover id="scopeMenu" class="menu"></div>
@@ -241,9 +274,10 @@ dialog .acts { display: grid; gap: 8px; }
 </dialog>
 
 <!-- lucide のアイコン（ISC）。必要な分だけ inline -->
-<svg width="0" height="0" style="position:absolute">
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
   <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></symbol>
   <symbol id="i-folder" viewBox="0 0 24 24"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></symbol>
+  <symbol id="i-folder-open" viewBox="0 0 24 24"><path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/></symbol>
   <symbol id="i-file-text" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></symbol>
   <symbol id="i-file-code" viewBox="0 0 24 24"><path d="M10 12.5 8 15l2 2.5"/><path d="m14 12.5 2 2.5-2 2.5"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z"/></symbol>
   <symbol id="i-film" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M7 3v18"/><path d="M3 7.5h4"/><path d="M3 12h18"/><path d="M3 16.5h4"/><path d="M17 3v18"/><path d="M17 7.5h4"/><path d="M17 16.5h4"/></symbol>
@@ -252,7 +286,6 @@ dialog .acts { display: grid; gap: 8px; }
   <symbol id="i-pdf" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M8 13h2"/><path d="M8 17h2"/><path d="M14 13h2"/><path d="M14 17h2"/></symbol>
   <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></symbol>
   <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
-  <symbol id="i-chev-l" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol>
   <symbol id="i-chev-d" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
   <symbol id="i-chev-r" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
   <symbol id="i-more" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></symbol>
@@ -263,6 +296,9 @@ dialog .acts { display: grid; gap: 8px; }
   <symbol id="i-hard-drive" viewBox="0 0 24 24"><path d="M22 12H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/><path d="M6 16h.01"/><path d="M10 16h.01"/></symbol>
   <symbol id="i-external" viewBox="0 0 24 24"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h3"/></symbol>
   <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><polygon points="6 3 20 12 6 21 6 3"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 24 24"><rect x="14" y="4" width="4" height="16" rx="1"/><rect x="6" y="4" width="4" height="16" rx="1"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
 </svg>
 
 <script>
@@ -276,13 +312,13 @@ const MD = `# drive-viewer 計画
 ## 一覧
 
 - **最近**：フォルダを横断して \`modifiedTime desc\`
-- **フォルダ**：たどって開く。ピン留めあり
+- **フォルダ**：一画面のツリーで開閉する
 
 | 種別 | 表示 |
 |---|---|
 | md | 表示 ⇄ 生、簡易編集 |
 | HTML | 描画 ⇄ 生 |
-| 動画・音声 | OS 標準のプレーヤー |
+| 動画・音声 | OS 標準。下のバーに収めて再生を続ける |
 
 ## 保存
 
@@ -293,34 +329,40 @@ const v = await files.get(id, "version");
 if (v !== opened) return conflict();
 \`\`\`
 `;
+// path はマイドライブからの位置
 const FILES = [
-  { id: "plan", name: "PLAN.md", path: "dev/drive-viewer", t: now - 2 * min, kind: "md", body: MD, size: "6.1 KB" },
-  { id: "sw", name: "sw.js", path: "dev/drive-viewer/docs", t: now - 7 * min, kind: "code", body: `// stream/{fileId} を Drive の alt=media に中継する\nself.addEventListener("fetch", (e) => {\n  const m = new URL(e.request.url).pathname.match(/\\/stream\\/([\\w-]+)$/);\n  if (m) e.respondWith(stream(e.request, m[1]));\n});\n`, size: "1.9 KB" },
-  { id: "prev", name: "preview_1.8x.mp4", path: "dev/video-test/out", t: now - 26 * min, kind: "video", size: "84.2 MB", dur: "4:52" },
-  { id: "rep", name: "report.html", path: "research/pedal-sim", t: now - 2.5 * hr, kind: "html", size: "38 KB" },
-  { id: "take", name: "take3_bass_DI.wav", path: "music/rec/1121", t: now - 5 * hr, kind: "audio", size: "41.7 MB", dur: "3:58" },
-  { id: "notes", name: "session-notes.md", path: "dev/short-context", t: now - 1 * day - 3 * hr, kind: "md", body: "# メモ\n\n- 履歴の圧縮は 3 段階で\n- 選択読みの閾値を下げる\n", size: "1.2 KB" },
-  { id: "spec", name: "datasheet_PCM1808.pdf", path: "pico-multi/docs", t: now - 1 * day - 9 * hr, kind: "pdf", size: "512 KB", pages: 6 },
-  { id: "img", name: "pcb_top.png", path: "pico-multi/pcb", t: now - 3 * day, kind: "image", size: "2.3 MB" },
-  { id: "log", name: "build.log", path: "dev/rakukan", t: now - 4 * day, kind: "code", body: "Compiling rakukan v0.14.0\n    Finished release [optimized] target(s) in 41.2s\n", size: "88 KB" },
+  { id: "plan", name: "PLAN.md", path: "Claude/dev/drive-viewer", t: now - 2 * min, kind: "md", body: MD, size: "6.1 KB" },
+  { id: "sw", name: "sw.js", path: "Claude/dev/drive-viewer/docs", t: now - 7 * min, kind: "code", body: `// stream/{fileId} を Drive の alt=media に中継する\nself.addEventListener("fetch", (e) => {\n  const m = new URL(e.request.url).pathname.match(/\\/stream\\/([\\w-]+)$/);\n  if (m) e.respondWith(stream(e.request, m[1]));\n});\n`, size: "1.9 KB" },
+  { id: "idx", name: "index.html", path: "Claude/dev/drive-viewer/docs", t: now - 9 * min, kind: "code", body: "<!doctype html>\n<title>Drive Viewer</title>\n", size: "7.4 KB" },
+  { id: "prev", name: "preview_1.8x.mp4", path: "Claude/dev/video-test/out", t: now - 26 * min, kind: "video", size: "84.2 MB", dur: 292 },
+  { id: "rep", name: "report.html", path: "Claude/research/pedal-sim", t: now - 2.5 * hr, kind: "html", size: "38 KB" },
+  { id: "w", name: "worker.js", path: "Claude/dev/drive-viewer/worker", t: now - 3 * hr, kind: "code", body: "export default { fetch() {} };\n", size: "2.4 KB" },
+  { id: "take", name: "take3_bass_DI.wav", path: "Claude/music/rec", t: now - 5 * hr, kind: "audio", size: "41.7 MB", dur: 238 },
+  { id: "take2", name: "take2_bass_DI.wav", path: "Claude/music/rec", t: now - 5.3 * hr, kind: "audio", size: "40.9 MB", dur: 236 },
+  { id: "notes", name: "session-notes.md", path: "Claude/dev/short-context", t: now - 1 * day - 3 * hr, kind: "md", body: "# メモ\n\n- 履歴の圧縮は 3 段階で\n- 選択読みの閾値を下げる\n", size: "1.2 KB" },
+  { id: "spec", name: "datasheet_PCM1808.pdf", path: "Claude/pico-multi/docs", t: now - 1 * day - 9 * hr, kind: "pdf", size: "512 KB", pages: 6 },
+  { id: "img", name: "pcb_top.png", path: "Claude/pico-multi/pcb", t: now - 3 * day, kind: "image", size: "2.3 MB" },
+  { id: "log", name: "build.log", path: "Claude/dev/rakukan", t: now - 4 * day, kind: "code", body: "Compiling rakukan v0.14.0\n    Finished release [optimized] target(s) in 41.2s\n", size: "88 KB" },
 ];
 const NEWCOMERS = [
-  { id: "rev", name: "review.md", path: "dev/drive-viewer", t: 0, kind: "md", body: "# レビュー\n\n- 新着ピルは位置を動かさない\n- トーストは 1 つだけ\n", size: "0.8 KB" },
-  { id: "shot", name: "mock_iphone.png", path: "dev/drive-viewer/shots", t: 0, kind: "image", size: "410 KB" },
+  { id: "rev", name: "review.md", path: "Claude/dev/drive-viewer", t: 0, kind: "md", body: "# レビュー\n\n- 新着ピルは位置を動かさない\n- トーストは 1 つだけ\n", size: "0.8 KB" },
+  { id: "shot", name: "mock_iphone.png", path: "Claude/dev/drive-viewer/shots", t: 0, kind: "image", size: "410 KB" },
 ];
-const FOLDERS = {
-  "": { pins: ["Claude", "Claude/dev", "Claude/research"], dirs: ["Claude", "Music", "大学"] },
-  "Claude": { dirs: ["dev", "memory", "research", "pico-multi", "music"], files: [] },
-  "Claude/dev": { dirs: ["drive-viewer", "rakukan", "short-context", "video-test"], files: [] },
-  "Claude/dev/drive-viewer": { dirs: ["docs", "worker", "shots"], files: ["plan", "rev"] },
-};
+const EXTRA_DIRS = ["Claude/memory", "Music", "大学", "大学/計算力学"];
+const PINS = ["Claude", "Claude/dev"];
 const ICON = { md: "i-file-text", code: "i-file-code", video: "i-film", audio: "i-music", image: "i-image", pdf: "i-pdf", html: "i-globe" };
+const allFiles = () => [...FILES, ...NEWCOMERS.filter((n) => n.t)];
+const byId = (id) => [...FILES, ...NEWCOMERS].find((x) => x.id === id);
 
 /* ===================== 小物 ===================== */
 const $ = (s, el = document) => el.querySelector(s);
 const h = (html) => { const t = document.createElement("template"); t.innerHTML = html.trim(); return t.content.firstElementChild; };
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const icon = (id, cls = "i") => `<svg class="${cls}" aria-hidden="true"><use href="#${id}"/></svg>`;
+const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const T = () => parseFloat(css("--t")) || 0;
+const EASE = () => css("--out");
+const mmss = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 function ago(t) {
   const s = (Date.now() - t) / 1000;
   if (s < 60) return "今";
@@ -338,8 +380,7 @@ function groupOf(t) {
   if (t >= d0 - 6 * day) return "今週";
   return "それより前";
 }
-function md(src) {
-  // モック用の最小 Markdown（本番は marked + DOMPurify）
+function md(src) { // モック用の最小 Markdown（本番は marked + DOMPurify）
   const lines = src.split("\n"); let out = "", i = 0;
   const inline = (s) => esc(s).replace(/`([^`]+)`/g, "<code>$1</code>").replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
   while (i < lines.length) {
@@ -353,160 +394,169 @@ function md(src) {
   }
   return out;
 }
-
-/* ===================== スタック ===================== */
-const stack = $("#stack");
-let tab = "recent";
-let views = []; // {el, key}
-
-function push(el, key) {
-  views.push({ el, key });
-  stack.append(el);
-  watchScroll(el);
-  history.pushState({ depth: views.length - 1 }, "");
-  goTo(views.length - 1);
-  syncChrome();
-}
-function back() { history.back(); }
-addEventListener("popstate", () => {
-  const depth = Math.max(0, (history.state && history.state.depth) || 0);
-  goTo(depth);
-});
-// プログラムからの移動。終わるまでは「スワイプで戻った」判定をしない
-let target = null;
-function goTo(idx) {
-  target = idx;
-  const instant = matchMedia("(prefers-reduced-motion: reduce)").matches || document.visibilityState !== "visible";
-  stack.scrollTo({ left: stack.clientWidth * idx, behavior: instant ? "instant" : "smooth" });
-  if (instant) settleNow();
-}
-// スワイプで戻ったら、通り過ぎたビューを捨てる（スクロールが止まったところを正とする）
-let settle;
-stack.addEventListener("scroll", () => {
-  clearTimeout(settle);
-  settle = setTimeout(settleNow, 120);
-}, { passive: true });
-function settleNow() {
-    const idx = Math.round(stack.scrollLeft / stack.clientWidth);
-    if (target !== null && idx !== target) return; // まだ移動中
-    target = null;
-    if (idx < views.length - 1) {
-      const drop = views.length - 1 - idx;
-      views.splice(idx + 1).forEach((v) => v.el.remove());
-      if (history.state && history.state.depth > idx) history.go(-drop);
-    }
-    views.forEach((v, i) => (v.el.inert = i !== idx));
-    syncChrome();
-}
-
-function syncChrome() {
-  const idx = Math.round(stack.scrollLeft / stack.clientWidth);
-  const top = views[views.length - 1];
-  $("#tabs").classList.toggle("hide", views.length > 1);
-  document.title = (top && top.key) || "Drive Viewer";
-}
-function watchScroll(el) {
-  el.addEventListener("scroll", () => el.classList.toggle("scrolled", el.scrollTop > 4), { passive: true });
-}
-function resetTo(el, key) {
-  views.forEach((v) => v.el.remove()); views = [];
-  views.push({ el, key }); stack.append(el); watchScroll(el);
-  stack.scrollTo({ left: 0 });
-  history.replaceState({ depth: 0 }, "");
-  syncChrome();
-}
-
-/* ===================== 最近 ===================== */
-let scope = "Claude";
-let files = FILES.slice();
-let pending = [];
-
-function rowHTML(f) {
-  return `<li><button class="row ${freshness(f.t)}" data-id="${f.id}">
+function fileRow(f, tree) {
+  return `<button class="row ${freshness(f.t)} ${media.file && media.file.id === f.id ? "playing" : ""}" data-id="${f.id}">
+    ${tree ? "<span></span>" : ""}
     <span class="ico">${icon(ICON[f.kind])}</span>
-    <span><span class="name">${esc(f.name)}</span><span class="path">${esc(f.path)}</span></span>
+    <span><span class="name">${esc(f.name)}</span>${tree ? "" : `<span class="path">${esc(f.path.replace(/^Claude\//, ""))}</span>`}</span>
     <time datetime="${new Date(f.t).toISOString()}">${ago(f.t)}</time>
-  </button></li>`;
+  </button>`;
 }
-function recentView() {
-  const v = h(`<section class="view" aria-label="最近">
+
+/* ===================== ページ（タブ）。遷移はしない ===================== */
+const main = $("#main");
+let tab = "recent", scope = "Claude", pending = [];
+addEventListener("scroll", () => document.querySelectorAll(".page > .top").forEach((t) => t.classList.toggle("scrolled", scrollY > 4)), { passive: true });
+
+function showTab(name) {
+  tab = name;
+  document.querySelectorAll(".tabs button").forEach((b) => b.setAttribute("aria-current", b.dataset.tab === name ? "page" : "false"));
+  main.replaceChildren(name === "recent" ? recentPage() : folderPage());
+  scrollTo(0, 0);
+}
+
+function recentPage() {
+  const p = h(`<section class="page" aria-label="最近">
     <header class="top">
-      <button class="scope" popovertarget="scopeMenu" aria-label="範囲: ${esc(scope)}">${esc(scope)}${icon("i-chev-d")}</button>
+      <button class="scope" popovertarget="scopeMenu">${esc(scope)}${icon("i-chev-d")}</button>
       <span class="title"></span>
       <button class="icon-btn" data-act="search" aria-label="検索">${icon("i-search")}</button>
     </header>
     <div class="pill"><button data-act="newer">${icon("i-arrow-up")}<span></span></button></div>
     <div class="list"></div>
   </section>`);
-  renderRecent(v);
-  return v;
+  renderRecent(p);
+  return p;
 }
-function renderRecent(v) {
-  const list = $(".list", v); list.innerHTML = "";
-  const sorted = files.slice().sort((a, b) => b.t - a.t);
+function renderRecent(p) {
+  const list = $(".list", p); list.innerHTML = "";
+  const inScope = allFiles().filter((f) => scope === "マイドライブ全体" || f.path === scope || f.path.startsWith(scope + "/"));
   let g = null, ul = null;
-  for (const f of sorted) {
+  for (const f of inScope.sort((a, b) => b.t - a.t)) {
     const gg = groupOf(f.t);
     if (gg !== g) { g = gg; list.append(h(`<h2 class="group-h">${g}</h2>`)); ul = h(`<ul class="rows"></ul>`); list.append(ul); }
-    ul.append(h(rowHTML(f)));
+    ul.append(h(`<li>${fileRow(f)}</li>`));
   }
-  $(".pill", v).classList.toggle("show", pending.length > 0);
-  $(".pill span", v).textContent = `新着 ${pending.length} 件`;
+  $(".pill", p).classList.toggle("show", pending.length > 0);
+  $(".pill span", p).textContent = `新着 ${pending.length} 件`;
 }
 
-/* ===================== フォルダ ===================== */
-function folderView(path) {
-  const node = FOLDERS[path] || { dirs: [], files: [] };
-  const title = path ? path.split("/").pop() : "フォルダ";
-  const v = h(`<section class="view" aria-label="${esc(title)}">
-    <header class="top">
-      ${path ? `<button class="icon-btn" data-act="back" aria-label="戻る">${icon("i-chev-l")}</button>` : ""}
-      <span class="title" style="${path ? "" : "padding-left:8px"}">${esc(title)}</span>
-      <button class="icon-btn" aria-label="並べ替え">${icon("i-more")}</button>
-    </header>
-    <div class="list"></div>
+/* ===================== ツリー ===================== */
+function dirsUnder(path) {
+  const all = new Set(EXTRA_DIRS);
+  allFiles().forEach((f) => { const parts = f.path.split("/"); for (let i = 1; i <= parts.length; i++) all.add(parts.slice(0, i).join("/")); });
+  const depth = path ? path.split("/").length : 0;
+  return [...all].filter((d) => (path ? d.startsWith(path + "/") : true) && d.split("/").length === depth + 1).sort();
+}
+const filesIn = (path) => allFiles().filter((f) => f.path === path).sort((a, b) => b.t - a.t);
+const openDirs = new Set(["Claude"]);
+
+function folderNode(path, depth, pin) {
+  const n = dirsUnder(path).length + filesIn(path).length;
+  const li = h(`<li class="node dir" style="--depth:${depth}" data-path="${esc(path)}" data-key="${pin ? "pin:" : ""}${esc(path)}">
+    <button class="row" data-toggle aria-expanded="false">
+      <span class="chev">${icon("i-chev-r")}</span>
+      <span class="ico">${icon(pin ? "i-pin" : "i-folder")}</span>
+      <span><span class="name">${esc(path.split("/").pop())}</span></span>
+      <span class="count">${n || ""}</span>
+    </button>
+    <div class="kids"><ul style="--depth:${depth}"></ul></div>
+  </li>`);
+  li._pin = pin;
+  if (openDirs.has(li.dataset.key)) expand(li, true, true);
+  return li;
+}
+function fillKids(li) {
+  const path = li.dataset.path, depth = Number(li.style.getPropertyValue("--depth")) + 1, ul = $(".kids > ul", li);
+  if (ul.childElementCount) return;
+  dirsUnder(path).forEach((d) => ul.append(folderNode(d, depth)));
+  filesIn(path).forEach((f) => ul.append(h(`<li class="node file" style="--depth:${depth}">${fileRow(f, true)}</li>`)));
+  if (!ul.childElementCount) ul.append(h(`<li class="empty-node" style="--depth:${depth}">空のフォルダ</li>`));
+}
+function expand(li, on = !li.classList.contains("open"), silent) {
+  if (on) fillKids(li);
+  if (silent) { const k = $(":scope > .kids", li); k.style.transition = "none"; requestAnimationFrame(() => (k.style.transition = "")); }
+  li.classList.toggle("open", on);
+  $(":scope > .row", li).setAttribute("aria-expanded", on);
+  if (!li._pin) $(":scope > .row .ico", li).innerHTML = icon(on ? "i-folder-open" : "i-folder");
+  on ? openDirs.add(li.dataset.key) : openDirs.delete(li.dataset.key);
+}
+function folderPage() {
+  const p = h(`<section class="page" aria-label="フォルダ">
+    <header class="top"><span class="title" style="padding-left:8px">フォルダ</span>
+      <button class="icon-btn" aria-label="並べ替え">${icon("i-more")}</button></header>
+    <div class="tree-sep">ピン留め</div><ul class="tree pins"></ul>
+    <div class="tree-sep">マイドライブ</div><ul class="tree drive"></ul>
   </section>`);
-  const list = $(".list", v);
-  if (!path) {
-    list.append(h(`<h2 class="group-h">ピン留め</h2>`));
-    const ul = h(`<ul class="rows"></ul>`);
-    node.pins.forEach((p) => ul.append(h(`<li><button class="row" data-dir="${esc(p)}"><span class="ico">${icon("i-pin")}</span><span><span class="name">${esc(p.split("/").pop())}</span><span class="path">${esc(p)}</span></span><span>${icon("i-chev-r")}</span></button></li>`)));
-    list.append(ul);
-    list.append(h(`<h2 class="group-h">マイドライブ</h2>`));
-  }
-  const ul = h(`<ul class="rows"></ul>`);
-  (node.dirs || []).forEach((d) => {
-    const full = path ? path + "/" + d : d;
-    ul.append(h(`<li><button class="row" data-dir="${esc(full)}"><span class="ico">${icon("i-folder")}</span><span><span class="name">${esc(d)}</span></span><span style="color:var(--ink-2)">${icon("i-chev-r")}</span></button></li>`));
-  });
-  (node.files || []).forEach((id) => { const f = [...FILES, ...NEWCOMERS].find((x) => x.id === id); if (f) ul.append(h(rowHTML(f))); });
-  if (!ul.children.length) list.append(h(`<p class="empty">このフォルダは空です</p>`)); else list.append(ul);
-  return v;
+  PINS.forEach((pp) => $(".pins", p).append(folderNode(pp, 0, true)));
+  dirsUnder("").forEach((d) => $(".drive", p).append(folderNode(d, 0)));
+  return p;
 }
 
-/* ===================== ビューア ===================== */
-function viewerView(f) {
-  const textual = ["md", "code", "html"].includes(f.kind);
+/* ===================== シート：タップした行から広がって覆う ===================== */
+let docSheet = null;
+const media = { sheet: null, file: null, el: null, playing: false, fake: 0 };
+const insetOf = (r) => `inset(${Math.max(0, r.top)}px ${Math.max(0, innerWidth - r.right)}px ${Math.max(0, innerHeight - r.bottom)}px ${Math.max(0, r.left)}px round 12px)`;
+const FULL = "inset(0px 0px 0px 0px round 0px)";
+
+function growFrom(s, originEl) {
+  const r = originEl && originEl.isConnected ? originEl.getBoundingClientRect() : null;
+  const from = r ? insetOf(r) : "inset(40% 10% 40% 10% round 12px)";
+  s.animate([{ clipPath: from }, { clipPath: FULL }], { duration: T(), easing: EASE() });
+  s.querySelectorAll(":scope > *").forEach((c) => c.animate([{ opacity: 0 }, { opacity: 1 }], { duration: T(), easing: EASE() }));
+}
+function shrinkTo(s, originEl, fromTransform) {
+  const r = originEl && originEl.isConnected ? originEl.getBoundingClientRect() : null;
+  const visible = r && r.bottom > 0 && r.top < innerHeight;
+  const to = visible ? insetOf(r) : "inset(45% 20% 45% 20% round 12px)";
+  s.querySelectorAll(":scope > *").forEach((c) => c.animate([{ opacity: 1 }, { opacity: 0 }], { duration: T() * 0.7, easing: EASE(), fill: "forwards" }));
+  s.style.transform = "";
+  return s.animate([{ clipPath: FULL, transform: fromTransform || "none" }, { clipPath: to, transform: "none" }], { duration: T(), easing: EASE(), fill: "forwards" }).finished;
+}
+
+function openFile(f, originEl) {
+  if (f.kind === "video" || f.kind === "audio") return openMedia(f, originEl);
+  if (docSheet) { docSheet.remove(); docSheet = null; }
+  const s = viewerSheet(f);
+  s._origin = originEl;
+  document.body.append(s);
+  document.body.classList.add("sheet-open");
+  growFrom(s, originEl);
+  docSheet = s;
+  history.pushState({ sheet: "doc" }, "");
+  if (f.id === "plan") armUpdate(s);
+}
+function closeDoc(fromTransform) {
+  const s = docSheet; if (!s) return;
+  docSheet = null;
+  document.body.classList.remove("sheet-open");
+  shrinkTo(s, s._origin, fromTransform).then(() => s.remove());
+}
+
+function viewerSheet(f) {
+  const textual = ["md", "code"].includes(f.kind);
   const modes = f.kind === "md" ? ["表示", "生"] : f.kind === "html" ? ["描画", "生"] : null;
-  const v = h(`<section class="view" aria-label="${esc(f.name)}">
-    <header class="top">
-      <button class="icon-btn" data-act="back" aria-label="戻る">${icon("i-chev-l")}</button>
+  const s = h(`<section class="sheet" role="dialog" aria-modal="true" aria-label="${esc(f.name)}">
+    <header class="top" data-grab>
+      <button class="icon-btn" data-act="close" aria-label="閉じる">${icon("i-chev-d")}</button>
       <span class="title">${esc(f.name)}</span>
-      ${textual && f.kind !== "html" ? `<button class="icon-btn" data-act="edit" aria-label="編集">${icon("i-pencil")}</button>` : ""}
+      ${textual ? `<button class="icon-btn" data-act="edit" aria-label="編集">${icon("i-pencil")}</button>` : ""}
       <button class="icon-btn" data-act="more" aria-label="その他">${icon("i-more")}</button>
     </header>
-    <div class="subbar">
-      <span class="meta ${freshness(f.t) === "fresh" ? "fresh" : ""}">${ago(f.t)}に更新 ・ ${esc(f.size)}</span>
-      ${modes ? `<div class="seg" role="group" aria-label="表示モード">${modes.map((m, i) => `<button aria-pressed="${i === 0}" data-mode="${i}">${m}</button>`).join("")}</div>` : ""}
+    <div class="scroll">
+      <div class="subbar">
+        <span class="meta ${freshness(f.t) === "fresh" ? "fresh" : ""}">${ago(f.t)}に更新 ・ ${esc(f.size)}</span>
+        ${modes ? `<div class="seg" role="group" aria-label="表示モード">${modes.map((m, i) => `<button aria-pressed="${i === 0}" data-mode="${i}">${m}</button>`).join("")}</div>` : ""}
+      </div>
+      <div class="body"></div>
     </div>
-    <div class="body"></div>
   </section>`);
-  v._file = f;
-  renderBody(v, 0);
-  return v;
+  s._file = f;
+  renderBody(s, 0);
+  return s;
 }
-function renderBody(v, mode) {
-  const f = v._file, body = $(".body", v);
+function renderBody(s, mode) {
+  const f = s._file, body = $(".body", s);
   if (f.kind === "md") body.innerHTML = mode === 0 ? `<article class="doc">${md(f.body)}</article>` : `<pre class="raw">${esc(f.body)}</pre>`;
   else if (f.kind === "code") body.innerHTML = `<pre class="raw">${esc(f.body)}</pre>`;
   else if (f.kind === "html") {
@@ -514,31 +564,134 @@ function renderBody(v, mode) {
     body.innerHTML = mode === 0 ? `<iframe class="frame" sandbox="allow-scripts" title="${esc(f.name)}"></iframe>` : `<pre class="raw">${esc(src)}</pre>`;
     if (mode === 0) $("iframe", body).srcdoc = src;
   }
-  else if (f.kind === "video" || f.kind === "audio") {
-    body.innerHTML = `<div class="player">
-      ${f.kind === "video" ? `<video controls playsinline preload="none"></video>` : `<audio controls preload="none"></audio>`}
-      <div class="chips" role="group" aria-label="再生速度">${[0.75, 1, 1.25, 1.5, 1.8, 2].map((r) => `<button aria-pressed="${r === 1}" data-rate="${r}">${r}×</button>`).join("")}</div>
-      <dl class="kv"><dt>長さ</dt><dd>${f.dur}</dd><dt>サイズ</dt><dd>${f.size}</dd><dt>場所</dt><dd>${esc(f.path)}</dd></dl>
-    </div>`;
-  }
   else if (f.kind === "pdf") {
-    body.innerHTML = `<div class="pdf">${Array.from({ length: f.pages }, (_, i) => `<div class="page" data-p="${i + 1}"><b>PCM1808</b><i style="width:70%"></i><i></i><i style="width:85%"></i><i></i><i style="width:60%"></i></div>`).join("")}</div><div class="pageno">1 / ${f.pages}</div>`;
-    const io = new IntersectionObserver((es) => es.forEach((e) => e.isIntersecting && ($(".pageno", body).textContent = `${e.target.dataset.p} / ${f.pages}`)), { root: v, threshold: 0.5 });
-    body.querySelectorAll(".page").forEach((p) => io.observe(p));
+    body.innerHTML = `<div class="pdf">${Array.from({ length: f.pages }, (_, i) => `<div class="pg" data-p="${i + 1}"><b>PCM1808</b><i style="width:70%"></i><i></i><i style="width:85%"></i><i></i><i style="width:60%"></i></div>`).join("")}</div><div class="pageno">1 / ${f.pages}</div>`;
+    const io = new IntersectionObserver((es) => es.forEach((e) => e.isIntersecting && ($(".pageno", body).textContent = `${e.target.dataset.p} / ${f.pages}`)), { root: $(".scroll", s), threshold: 0.5 });
+    body.querySelectorAll(".pg").forEach((p) => io.observe(p));
   }
   else if (f.kind === "image") body.innerHTML = `<div style="padding:0 var(--pad)"><div style="aspect-ratio:4/3;border-radius:8px;background:var(--paper-2);display:grid;place-items:center;color:var(--ink-2)">${icon("i-image")}</div></div>`;
 }
-function enterEdit(v) {
-  const f = v._file;
-  $(".subbar", v).hidden = true;
-  $('[data-act="edit"]', v).hidden = true;
-  const body = $(".body", v);
-  body.innerHTML = `<textarea class="edit" spellcheck="false" aria-label="${esc(f.name)} を編集"></textarea>
-    <div class="editbar"><button class="btn ghost" data-act="discard">破棄</button><button class="btn solid" data-act="save">保存</button></div>`;
-  const ta = $("textarea", body); ta.value = f.body; ta.focus({ preventScroll: true });
+const setSeg = (s, m) => s.querySelectorAll(".seg button").forEach((b) => b.setAttribute("aria-pressed", b.dataset.mode == m));
+function enterEdit(s) {
+  const f = s._file;
+  $(".subbar", s).hidden = true; $('[data-act="edit"]', s).hidden = true;
+  $(".body", s).innerHTML = `<textarea class="edit" spellcheck="false" aria-label="${esc(f.name)} を編集"></textarea>`;
+  s.append(h(`<div class="editbar"><button class="btn ghost" data-act="discard">破棄</button><button class="btn solid" data-act="save">保存</button></div>`));
+  const ta = $("textarea", s); ta.value = f.body; ta.focus({ preventScroll: true });
 }
-function leaveEdit(v) { $(".subbar", v).hidden = false; $('[data-act="edit"]', v).hidden = false; renderBody(v, 0); $$seg(v, 0); }
-const $$seg = (v, m) => v.querySelectorAll(".seg button").forEach((b) => b.setAttribute("aria-pressed", b.dataset.mode == m));
+function leaveEdit(s) { $(".subbar", s).hidden = false; $('[data-act="edit"]', s).hidden = false; $(".editbar", s)?.remove(); renderBody(s, 0); setSeg(s, 0); }
+
+/* ===================== メディア：全画面 ⇄ 下部のミニバー ===================== */
+function openMedia(f, originEl) {
+  if (media.file && media.file.id === f.id) return expandMedia();
+  if (media.sheet) { media.el.pause(); media.sheet.remove(); document.body.classList.remove("has-mini"); }
+  const isV = f.kind === "video";
+  const s = h(`<section class="sheet media" role="dialog" aria-label="${esc(f.name)}">
+    <header class="top" data-grab>
+      <button class="icon-btn" data-act="minimize" aria-label="下に収める">${icon("i-chev-d")}</button>
+      <span class="title">${esc(f.name)}</span>
+      <button class="icon-btn" data-act="more" aria-label="その他">${icon("i-more")}</button>
+    </header>
+    <div class="scroll">
+      <div class="subbar"><span class="meta">${ago(f.t)}に更新 ・ ${esc(f.size)}</span></div>
+      <div class="player">
+        <div class="stage ${isV ? "" : "audio"}">
+          ${isV ? `<video controls playsinline preload="none"></video>` : `<div class="art">${icon("i-music")}</div><audio controls preload="none"></audio>`}
+        </div>
+        <div class="chips" role="group" aria-label="再生速度">${[0.75, 1, 1.25, 1.5, 1.8, 2].map((r) => `<button aria-pressed="${r === 1}" data-rate="${r}">${r}×</button>`).join("")}</div>
+        <dl class="kv"><dt>長さ</dt><dd>${mmss(f.dur)}</dd><dt>サイズ</dt><dd>${f.size}</dd><dt>場所</dt><dd>${esc(f.path)}</dd></dl>
+      </div>
+    </div>
+    <div class="mini-ui">
+      <button class="mt" data-act="expand"><b>${esc(f.name)}</b><span class="mtime">0:00 / ${mmss(f.dur)}</span></button>
+      <button class="icon-btn" data-act="playpause" aria-label="再生">${icon("i-play")}</button>
+      <button class="icon-btn" data-act="stop" aria-label="閉じる">${icon("i-x")}</button>
+      <span class="prog"></span>
+    </div>
+  </section>`);
+  s._file = f; s._origin = originEl;
+  Object.assign(media, { sheet: s, file: f, el: $("video,audio", s), fake: 0, playing: false });
+  document.body.append(s);
+  growFrom(s, originEl);
+  history.pushState({ sheet: "media" }, "");
+  markPlaying();
+}
+// モックでは音源が無いので、再生は時間だけ進める
+setInterval(() => {
+  if (!media.sheet || !media.playing) return;
+  media.fake = Math.min(media.file.dur, media.fake + 1);
+  $(".mtime", media.sheet).textContent = `${mmss(media.fake)} / ${mmss(media.file.dur)}`;
+  $(".prog", media.sheet).style.width = (media.fake / media.file.dur * 100) + "%";
+}, 1000);
+function miniRect() {
+  const bar = docSheet ? 0 : 52;
+  const top = innerHeight - bar - 8 - 64;
+  return { top, left: 8, right: innerWidth - 8, bottom: top + 64 };
+}
+function minimizeMedia(fromTransform) {
+  const s = media.sheet; if (!s || s.classList.contains("mini")) return;
+  s.style.transform = "";
+  s.animate([{ clipPath: FULL, transform: fromTransform || "none" }, { clipPath: insetOf(miniRect()), transform: "none" }], { duration: T(), easing: EASE() })
+    .finished.then(() => { s.classList.add("mini"); document.body.classList.add("has-mini"); });
+  if (!media.playing) togglePlay(true); // モック：収めた時点で再生中の扱い
+}
+function expandMedia() {
+  const s = media.sheet; if (!s || !s.classList.contains("mini")) return;
+  const r = s.getBoundingClientRect();
+  s.classList.remove("mini"); document.body.classList.remove("has-mini");
+  s.animate([{ clipPath: insetOf(r) }, { clipPath: FULL }], { duration: T(), easing: EASE() });
+  history.pushState({ sheet: "media" }, "");
+}
+function stopMedia() {
+  const s = media.sheet; if (!s) return;
+  media.el.pause();
+  s.animate([{ opacity: 1, transform: "none" }, { opacity: 0, transform: "translateY(24px)" }], { duration: T(), easing: EASE(), fill: "forwards" }).finished.then(() => s.remove());
+  Object.assign(media, { sheet: null, file: null, el: null, playing: false });
+  document.body.classList.remove("has-mini");
+  markPlaying();
+}
+function togglePlay(on = !media.playing) {
+  media.playing = on;
+  const b = $('[data-act="playpause"]', media.sheet);
+  b.innerHTML = icon(on ? "i-pause" : "i-play"); b.setAttribute("aria-label", on ? "一時停止" : "再生");
+}
+function markPlaying() { document.querySelectorAll(".row[data-id]").forEach((r) => r.classList.toggle("playing", !!media.file && r.dataset.id === media.file.id)); }
+
+/* ===================== ヘッダを掴んで下へ払う／ミニバーを上へ払う ===================== */
+let drag = null;
+document.addEventListener("pointerdown", (e) => {
+  const mini = e.target.closest(".sheet.media.mini");
+  if (mini) { if (!e.target.closest("[data-act=playpause],[data-act=stop]")) drag = { s: mini, y0: e.clientY, t0: e.timeStamp, dy: 0, mini: true }; return; }
+  const grab = e.target.closest("[data-grab]");
+  if (!grab || e.target.closest("button")) return;
+  drag = { s: grab.closest(".sheet"), y0: e.clientY, t0: e.timeStamp, dy: 0 };
+  grab.setPointerCapture(e.pointerId);
+});
+document.addEventListener("pointermove", (e) => {
+  if (!drag) return;
+  drag.dy = e.clientY - drag.y0;
+  if (!drag.mini) drag.s.style.transform = `translateY(${Math.max(0, drag.dy)}px)`;
+});
+document.addEventListener("pointerup", (e) => {
+  if (!drag) return;
+  const d = drag; drag = null;
+  const v = d.dy / Math.max(1, e.timeStamp - d.t0); // px/ms
+  if (d.mini) { if (d.dy < -30 || v < -0.3) expandMedia(); return; }
+  const tr = d.s.style.transform;
+  if (d.dy > 90 || v > 0.5) {
+    d.s._dragTr = tr;
+    history.back(); // popstate で閉じる／収める
+  } else {
+    d.s.style.transform = "";
+    d.s.animate([{ transform: tr }, { transform: "none" }], { duration: T(), easing: EASE() });
+  }
+});
+
+/* ===================== 戻る（ボタン・OS・ブラウザ共通） ===================== */
+addEventListener("popstate", () => {
+  if (media.sheet && !media.sheet.classList.contains("mini")) { minimizeMedia(media.sheet._dragTr); media.sheet._dragTr = null; return; }
+  if (docSheet) { const tr = docSheet._dragTr; closeDoc(tr); }
+});
 
 /* ===================== トースト ===================== */
 let toastTimer;
@@ -546,84 +699,78 @@ function toast(text, act, fn) {
   $("#toastText").textContent = text;
   const b = $("#toastAct"); b.textContent = act || ""; b.hidden = !act; b.onclick = () => { hideToast(); fn && fn(); };
   $("#toast").classList.add("show");
-  clearTimeout(toastTimer); toastTimer = setTimeout(hideToast, act ? 8000 : 2500);
+  clearTimeout(toastTimer); toastTimer = setTimeout(hideToast, act ? 8000 : 2200);
 }
 const hideToast = () => $("#toast").classList.remove("show");
 
 /* ===================== 操作 ===================== */
 document.addEventListener("click", (e) => {
   const t = e.target.closest("button"); if (!t) return;
-  const v = t.closest(".view");
-  if (t.dataset.tab) {
-    tab = t.dataset.tab;
-    document.querySelectorAll(".tabs button").forEach((b) => b.setAttribute("aria-current", b === t ? "page" : "false"));
-    resetTo(tab === "recent" ? recentView() : folderView(""), tab === "recent" ? "最近" : "フォルダ");
-    return;
-  }
-  if (t.dataset.id) { const f = [...FILES, ...NEWCOMERS].find((x) => x.id === t.dataset.id); push(viewerView(f), f.name); if (f.id === "plan") armUpdate(); return; }
-  if (t.dataset.dir) { push(folderView(t.dataset.dir), t.dataset.dir); return; }
-  if (t.dataset.mode) { $$seg(v, t.dataset.mode); renderBody(v, Number(t.dataset.mode)); return; }
-  if (t.dataset.rate) { t.parentElement.querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", b === t)); const m = $("video,audio", v); if (m) m.playbackRate = Number(t.dataset.rate); return; }
-  if (t.dataset.c) { $("#conflict").close(); if (t.dataset.c === "reload") { leaveEdit(views.at(-1).el); toast("最新を読み込みました"); } else if (t.dataset.c === "overwrite") { leaveEdit(views.at(-1).el); toast("保存しました"); } return; }
+  const s = t.closest(".sheet"), p = t.closest(".page");
+  if (t.dataset.tab) { showTab(t.dataset.tab); return; }
+  if (t.dataset.id && !s) { openFile(byId(t.dataset.id), t); return; }
+  if ("toggle" in t.dataset) { expand(t.closest(".node")); return; }
+  if (t.dataset.mode) { setSeg(s, t.dataset.mode); renderBody(s, Number(t.dataset.mode)); return; }
+  if (t.dataset.rate) { t.parentElement.querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", b === t)); if (media.el) media.el.playbackRate = Number(t.dataset.rate); return; }
+  if (t.dataset.c) { $("#conflict").close(); if (docSheet && t.dataset.c !== "cancel") { leaveEdit(docSheet); toast(t.dataset.c === "reload" ? "最新を読み込みました" : "保存しました"); } return; }
   switch (t.dataset.act) {
-    case "back": back(); break;
-    case "edit": enterEdit(v); break;
-    case "discard": leaveEdit(v); break;
+    case "close": case "minimize": history.back(); break;
+    case "expand": expandMedia(); break;
+    case "playpause": togglePlay(); break;
+    case "stop": stopMedia(); break;
+    case "edit": enterEdit(s); break;
+    case "discard": leaveEdit(s); break;
     case "save": $("#conflict").showModal(); break;
-    case "newer": files = [...pending.map((f) => ({ ...f, t: Date.now() - 30e3 })), ...files]; pending = []; renderRecent(v); v.scrollTo({ top: 0 }); break;
+    case "newer": NEWCOMERS.forEach((n) => (n.t = Date.now() - 30e3)); pending = []; renderRecent(p); scrollTo({ top: 0 }); break;
     case "search": {
-      if ($(".search", v)) break;
-      const s = h(`<div class="search"><input type="search" placeholder="ファイル名" enterkeyhint="search" aria-label="ファイル名で検索"></div>`);
-      $(".top", v).after(s); $("input", s).focus();
-      $("input", s).addEventListener("input", (ev) => { const q = ev.target.value.toLowerCase(); v.querySelectorAll(".row").forEach((r) => (r.closest("li").hidden = q && !$(".name", r).textContent.toLowerCase().includes(q))); });
+      if ($(".search", p)) break;
+      const sb = h(`<div class="search"><input type="search" placeholder="ファイル名" enterkeyhint="search" aria-label="ファイル名で検索"></div>`);
+      $(".top", p).after(sb); $("input", sb).focus();
+      $("input", sb).addEventListener("input", (ev) => { const q = ev.target.value.toLowerCase(); p.querySelectorAll(".row").forEach((r) => (r.closest("li").hidden = q && !$(".name", r).textContent.toLowerCase().includes(q))); });
       break;
     }
     case "more": {
-      const f = v._file, m = $("#moreMenu");
-      m.innerHTML = `<div class="path">${esc("マイドライブ/Claude/" + f.path + "/" + f.name)}</div><hr>
+      const f = s._file, m = $("#moreMenu");
+      m.innerHTML = `<div class="path">${esc("マイドライブ/" + f.path + "/" + f.name)}</div><hr>
         <button data-act="copy">${icon("i-link")}リンクをコピー</button>
         <button data-act="drive">${icon("i-external")}Driveで開く</button>`;
       m.showPopover(); break;
     }
     case "copy": $("#moreMenu").hidePopover(); toast("リンクをコピーしました"); break;
     case "drive": $("#moreMenu").hidePopover(); toast("モックなので開きません"); break;
-    case "scope": break;
   }
 });
 
 // 範囲メニュー
-function buildScope() {
-  const m = $("#scopeMenu");
+$("#scopeMenu").addEventListener("beforetoggle", (e) => {
+  if (e.newState !== "open") return;
   const opts = [["Claude", "i-pin"], ["Claude/dev", "i-pin"], ["Claude/research", "i-pin"], ["マイドライブ全体", "i-hard-drive"]];
-  m.innerHTML = opts.map(([o, ic]) => `<button data-scope="${esc(o)}">${icon(ic)}${esc(o)}${o === scope ? `<span class="check">${icon("i-check")}</span>` : ""}</button>`).join("");
-}
-$("#scopeMenu").addEventListener("beforetoggle", buildScope);
+  $("#scopeMenu").innerHTML = opts.map(([o, ic]) => `<button data-scope="${esc(o)}">${icon(ic)}${esc(o)}${o === scope ? `<span class="check">${icon("i-check")}</span>` : ""}</button>`).join("");
+});
 $("#scopeMenu").addEventListener("click", (e) => {
   const b = e.target.closest("[data-scope]"); if (!b) return;
-  scope = b.dataset.scope; $("#scopeMenu").hidePopover();
-  resetTo(recentView(), "最近");
+  scope = b.dataset.scope; $("#scopeMenu").hidePopover(); showTab("recent");
 });
 
 // デモ：数秒後に新着が届く
-setTimeout(() => { pending = NEWCOMERS.slice(); const v = views[0]; if (tab === "recent" && v) renderRecent(v.el); }, 4000);
+setTimeout(() => { pending = NEWCOMERS.slice(); const p = $(".page"); if (tab === "recent" && p) renderRecent(p); }, 4000);
 // デモ：PLAN.md を開いて数秒後に「更新されました」
 let armed = false;
-function armUpdate() {
+function armUpdate(s) {
   if (armed) return; armed = true;
   setTimeout(() => {
-    const top = views.at(-1);
-    if (!top || !top.el._file || top.el._file.id !== "plan" || $("textarea", top.el)) { armed = false; return; }
+    if (docSheet !== s || $("textarea", s)) { armed = false; return; }
     toast("PLAN.md が更新されました", "再読込", () => {
-      const f = top.el._file; f.t = Date.now(); f.body += "\n## 追記\n\nエージェントが書き足した段落。\n";
-      $(".meta", top.el).textContent = `今に更新 ・ ${f.size}`; $(".meta", top.el).classList.add("fresh");
-      renderBody(top.el, 0); $$seg(top.el, 0);
+      const f = s._file; f.t = Date.now(); f.body += "\n## 追記\n\nエージェントが書き足した段落。\n";
+      $(".meta", s).textContent = `今に更新 ・ ${f.size}`; $(".meta", s).classList.add("fresh");
+      renderBody(s, 0); setSeg(s, 0);
     });
   }, 5000);
 }
 // 相対時刻を 30 秒ごとに更新
-setInterval(() => document.querySelectorAll(".row time").forEach((t) => { const ts = Date.parse(t.dateTime); t.textContent = ago(ts); t.closest(".row").classList.remove("fresh", "warm"); const fr = freshness(ts); if (fr) t.closest(".row").classList.add(fr); }), 30e3);
+setInterval(() => document.querySelectorAll(".row time").forEach((t) => { const ts = Date.parse(t.dateTime); t.textContent = ago(ts); const r = t.closest(".row"); r.classList.remove("fresh", "warm"); const fr = freshness(ts); if (fr) r.classList.add(fr); }), 30e3);
 
-resetTo(recentView(), "最近");
+showTab("recent");
 </script>
 </body>
 </html>
