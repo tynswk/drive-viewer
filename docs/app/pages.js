@@ -1,5 +1,5 @@
 // タブの中身：最近・フォルダ。ページ遷移はしない
-import { $, h, esc, icon, ago, freshness, groupOf, fail } from "./ui.js";
+import { $, h, esc, icon, ago, freshness, groupOf, fail, toast } from "./ui.js";
 import { store } from "./auth.js";
 import { reg, resolvePath, listRecent, listChildren, getRootId } from "./drive.js";
 import { kindOf, ICON } from "./kind.js";
@@ -8,6 +8,7 @@ import { media } from "./media.js";
 /* ===================== 設定（ピン留め・範囲） ===================== */
 const ALL = "マイドライブ全体";
 const pinsGet = () => { try { return JSON.parse(store.get("dv_pins")) || ["Claude", "Claude/dev"]; } catch { return ["Claude", "Claude/dev"]; } };
+const pinsSet = (a) => store.set("dv_pins", JSON.stringify(a));
 let scope = store.get("dv_scope") || "Claude";
 
 /* ===================== 行 ===================== */
@@ -134,7 +135,7 @@ const openDirs = new Set();   // 開いているフォルダのキー（ピン�
 const kidsCache = new Map();  // フォルダID -> {folders, files}
 const sig = (d) => d.folders.map((f) => f.id).join() + "|" + d.files.map((f) => f.id + f.modifiedTime).join();
 
-function folderNode(dir, depth, pin) {
+function folderNode(dir, depth, pin, path) {
   const li = h(`<li class="node dir" style="--depth:${depth}" data-id="${esc(dir.id)}" data-key="${pin ? "pin:" : ""}${esc(dir.id)}">
     <button class="row" data-toggle aria-expanded="false">
       <span class="chev">${icon("i-chev-r")}</span>
@@ -144,16 +145,16 @@ function folderNode(dir, depth, pin) {
     </button>
     <div class="kids"><ul style="--depth:${depth}"></ul></div>
   </li>`);
-  li._pin = pin;
+  li._pin = pin; li._path = path;
   const c = kidsCache.get(dir.id);
   if (c) $(".count", li).textContent = c.folders.length + c.files.length || "";
   if (openDirs.has(li.dataset.key)) expand(li, true, true);
   return li;
 }
 // 子の行を作る。cached を先に出し、取り直した結果が違えば差し替える
-function renderKids(ul, d, depth) {
+function renderKids(ul, d, depth, base) {
   const nodes = [
-    ...d.folders.map((f) => folderNode(f, depth)),
+    ...d.folders.map((f) => folderNode(f, depth, false, base ? base + "/" + f.name : f.name)),
     ...d.files.map((f) => h(`<li class="node file" style="--depth:${depth}">${fileRow(f, true)}</li>`)),
   ];
   if (!nodes.length) nodes.push(h(`<li class="empty-node" style="--depth:${depth}">空のフォルダ</li>`));
@@ -162,12 +163,12 @@ function renderKids(ul, d, depth) {
 async function fillKids(li) {
   const id = li.dataset.id, depth = Number(li.style.getPropertyValue("--depth")) + 1, ul = $(".kids > ul", li);
   const cached = kidsCache.get(id);
-  if (cached) renderKids(ul, cached, depth);
+  if (cached) renderKids(ul, cached, depth, li._path);
   try {
     const d = await listChildren(id);
     kidsCache.set(id, d);
     $(".count", li).textContent = d.folders.length + d.files.length || "";
-    if (!cached || sig(cached) !== sig(d)) renderKids(ul, d, depth);
+    if (!cached || sig(cached) !== sig(d)) renderKids(ul, d, depth, li._path);
   } catch (e) { if (!cached) fail("読み込めませんでした", e); else console.warn(e); }
 }
 function expand(li, on = !li.classList.contains("open"), silent) {
@@ -187,17 +188,49 @@ function folderPage() {
     <div class="tree-sep">ピン留め</div><ul class="tree pins"></ul>
     <div class="tree-sep">マイドライブ</div><ul class="tree drive"></ul>
   </section>`);
-  const pins = $(".pins", p), drive = $(".drive", p);
-  Promise.all(pinsGet().map(async (path) => ({ path, id: await resolvePath(path).catch(() => null) })))
-    .then((rs) => rs.forEach((r) => r.id && pins.append(folderNode({ id: r.id, name: r.path.split("/").pop() }, 0, true))))
-    .catch((e) => fail("読み込めませんでした", e));
+  const drive = $(".drive", p);
+  renderPins($(".pins", p));
   getRootId().then(async (rootId) => {
     // root は「開いた状態の1つのフォルダ」と同じ作りで、直下をそのまま出す
     const cached = kidsCache.get(rootId);
-    if (cached) renderKids(drive, cached, 0);
+    if (cached) renderKids(drive, cached, 0, "");
     const d = await listChildren(rootId);
     kidsCache.set(rootId, d);
-    if (!cached || sig(cached) !== sig(d)) renderKids(drive, d, 0);
+    if (!cached || sig(cached) !== sig(d)) renderKids(drive, d, 0, "");
   }).catch((e) => fail("読み込めませんでした", e));
   return p;
+}
+
+/* ===================== ピン留め（フォルダ行の長押し。ADR-0018） ===================== */
+function renderPins(ul) {
+  const paths = pinsGet();
+  if (!paths.length) { ul.replaceChildren(h(`<li class="empty-node" style="--depth:0">フォルダを長押しして追加</li>`)); return; }
+  Promise.all(paths.map(async (path) => ({ path, id: await resolvePath(path).catch(() => null) })))
+    .then((rs) => ul.replaceChildren(...rs.filter((r) => r.id).map((r) => folderNode({ id: r.id, name: r.path.split("/").pop() }, 0, true, r.path))))
+    .catch((e) => fail("読み込めませんでした", e));
+}
+let menuNode = null;
+export function nodeMenu(li) {
+  const path = li._path; if (!path) return;
+  menuNode = li;
+  const pinned = pinsGet().includes(path);
+  const m = $("#nodeMenu");
+  m.innerHTML = `<div class="path">${esc(path)}</div>`
+    + `<button data-pin="${pinned ? "off" : "on"}">${icon("i-pin")}${pinned ? "ピンを外す" : "ピン留め"}</button>`;
+  m.showPopover();
+  // 押した行のすぐ下に出す。下に入らなければ上に
+  const r = $(":scope > .row", li).getBoundingClientRect(), mh = m.offsetHeight, mw = m.offsetWidth;
+  m.style.left = Math.min(Math.max(8, r.left + 16), innerWidth - mw - 8) + "px";
+  m.style.top = (r.bottom + 4 + mh < innerHeight - 8 ? r.bottom + 4 : Math.max(8, r.top - mh - 4)) + "px";
+}
+export function pinAction(on) {
+  const li = menuNode, path = li && li._path; menuNode = null;
+  $("#nodeMenu").hidePopover();
+  if (!path) return;
+  const a = pinsGet().filter((x) => x !== path);
+  if (on) a.push(path);
+  pinsSet(a);
+  toast(on ? "ピン留めしました" : "ピンを外しました");
+  const ul = document.querySelector(".page .tree.pins");
+  if (ul) renderPins(ul);
 }

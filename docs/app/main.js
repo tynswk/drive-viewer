@@ -3,7 +3,7 @@ import { $, h, T, EASE, state, fail, ago, freshness } from "./ui.js";
 import { store, isAuthed, login, logout, handleRedirect } from "./auth.js";
 import { reg } from "./drive.js";
 import { media, minimizeMedia, expandMedia, stopMedia, togglePlay, setRate } from "./media.js";
-import { showTab, showNewer, searchBox, initScopeMenu, appMenu, toggleNode, checkRecent } from "./pages.js";
+import { showTab, showNewer, searchBox, initScopeMenu, appMenu, toggleNode, checkRecent, nodeMenu, pinAction } from "./pages.js";
 import {
   openFile, openById, closeDoc, isDirty, cancelEdit, resolveDiscard, enterEdit, saveEdit, setMode,
   mergeAction, mergeView, mergePick, showMore, moreAction, checkDocUpdate,
@@ -74,6 +74,27 @@ document.addEventListener("pointerup", (e) => {
     d.s.animate([{ transform: tr }, { transform: "none" }], { duration: T(), easing: EASE() });
   }
 });
+
+/* ===================== フォルダ行の長押し（右クリックも）でメニュー ===================== */
+let press = null, swallowClick = false;
+document.addEventListener("pointerdown", (e) => {
+  const row = e.target.closest(".node.dir > .row[data-toggle]"); if (!row) return;
+  press = { x: e.clientX, y: e.clientY, tm: setTimeout(() => { press = null; swallowClick = true; nodeMenu(row.closest(".node")); }, 450) };
+});
+const endPress = () => { if (press) { clearTimeout(press.tm); press = null; } };
+document.addEventListener("pointermove", (e) => { if (press && Math.hypot(e.clientX - press.x, e.clientY - press.y) > 8) endPress(); });
+["pointerup", "pointercancel"].forEach((n) => document.addEventListener(n, () => {
+  endPress();
+  if (swallowClick) setTimeout(() => (swallowClick = false), 350); // クリックが来なかったときに次のタップを食べない
+}));
+addEventListener("scroll", endPress, { passive: true });
+document.addEventListener("contextmenu", (e) => {
+  const row = e.target.closest(".node.dir > .row[data-toggle]"); if (!row) return;
+  e.preventDefault(); endPress(); swallowClick = false; nodeMenu(row.closest(".node"));
+});
+// 長押しで開いたあとの指離しのクリックで、フォルダが開閉しないように
+document.addEventListener("click", (e) => { if (swallowClick) { swallowClick = false; e.stopImmediatePropagation(); e.preventDefault(); } }, true);
+$("#nodeMenu").addEventListener("click", (e) => { const b = e.target.closest("[data-pin]"); if (b) pinAction(b.dataset.pin === "on"); });
 
 /* ===================== 戻る（ボタン・OS・ブラウザ共通） ===================== */
 addEventListener("popstate", () => {

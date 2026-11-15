@@ -95,6 +95,7 @@ body.has-mini .page { padding-bottom: calc(var(--bar) + var(--mini) + env(safe-a
 
 /* ===== ツリー（フォルダ）。一画面で下に連なる ===== */
 .tree, .tree ul { list-style: none; margin: 0; padding: 0; }
+.tree .row { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
 .node > .row { grid-template-columns: 20px 24px 1fr auto; column-gap: 8px; padding-left: calc(var(--pad) - 6px + var(--depth, 0) * 18px); min-height: 48px; }
 .node > .row .chev { color: var(--ink-2); display: grid; place-items: center; transition: rotate var(--t) var(--out); }
 .node > .row .chev svg { width: 16px; height: 16px; }
@@ -209,11 +210,11 @@ body.sheet-open .sheet.media.mini { bottom: calc(env(safe-area-inset-bottom) + 8
 
 /* ===== popover / toast / dialog ===== */
 [popover] { border: 0; padding: 6px; border-radius: 14px; background: var(--paper); color: var(--ink); box-shadow: var(--shadow); min-width: 240px; }
-#scopeMenu, #moreMenu { position: fixed; inset: auto; top: calc(var(--bar) + env(safe-area-inset-top) + 4px); margin: 0; transform-origin: top left;
+#scopeMenu, #moreMenu, #nodeMenu { position: fixed; inset: auto; top: calc(var(--bar) + env(safe-area-inset-top) + 4px); margin: 0; transform-origin: top left;
   opacity: 0; scale: .96; transition: opacity var(--t-fast) var(--out), scale var(--t-fast) var(--out), display var(--t-fast) allow-discrete, overlay var(--t-fast) allow-discrete; }
 #scopeMenu { left: 8px; } #moreMenu { right: 8px; transform-origin: top right; z-index: 40; }
-#scopeMenu:popover-open, #moreMenu:popover-open { opacity: 1; scale: 1; }
-@starting-style { #scopeMenu:popover-open, #moreMenu:popover-open { opacity: 0; scale: .96; } }
+#scopeMenu:popover-open, #moreMenu:popover-open, #nodeMenu:popover-open { opacity: 1; scale: 1; }
+@starting-style { #scopeMenu:popover-open, #moreMenu:popover-open, #nodeMenu:popover-open { opacity: 0; scale: .96; } }
 .menu button { display: flex; align-items: center; gap: 12px; width: 100%; min-height: var(--target); padding: 0 12px; border-radius: 9px; text-align: left; }
 .menu button:active { background: var(--paper-2); }
 .menu .check { margin-left: auto; color: var(--fresh); }

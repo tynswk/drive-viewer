@@ -1,7 +1,7 @@
 // 1) stream/{fileId} を Drive の alt=media に中継する（Content-Range を組み立て直す。ADR-0004）
 // 2) 画面と app/ はネットワーク優先（つながらなければキャッシュ）、vendor は stale-while-revalidate（ADR-0015）
 // VERSION を上げると、新しい SW が全ファイルを取り直して古いキャッシュを捨てる
-const VERSION = "p1-2";
+const VERSION = "p1-3";
 const CACHE = "app-" + VERSION;
 const PRECACHE = [
   "./", "manifest.webmanifest", "icon-180.png", "icon-192.png", "icon-512.png",
