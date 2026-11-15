@@ -1,4 +1,5 @@
 // ログイン（認可コード＋PKCE、交換と更新は Worker）。P0 の処理の移植
+import { clearCache } from "./cache.js";
 const CLIENT_ID = "591925567747-l2hgpfep4qvme7c5tdhh9mnal8nub2h1.apps.googleusercontent.com";
 const WORKER = "https://drive-viewer-auth.tynswk.workers.dev";
 const REDIRECT = location.origin + location.pathname.replace(/index\.html$/, "");
@@ -96,5 +97,5 @@ export function logout() {
   const pins = store.get("dv_pins");
   try { localStorage.clear(); } catch {}
   if (pins) store.set("dv_pins", pins);
-  caches.delete("auth").finally(() => location.reload());
+  Promise.allSettled([caches.delete("auth"), clearCache()]).finally(() => location.reload());
 }

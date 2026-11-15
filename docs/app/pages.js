@@ -4,6 +4,7 @@ import { store } from "./auth.js";
 import { reg, resolvePath, listRecent, listChildren, getRootId } from "./drive.js";
 import { kindOf, ICON } from "./kind.js";
 import { media } from "./media.js";
+import { cget, cset } from "./cache.js";
 
 /* ===================== 設定（ピン留め・範囲） ===================== */
 const ALL = "マイドライブ全体";
@@ -47,7 +48,12 @@ function recentPage() {
     <div class="pill"><button data-act="newer">${icon("i-arrow-up")}<span></span></button></div>
     <div class="list"></div>
   </section>`);
-  if (cache.has(scope)) { renderRecent(p); checkRecent(); } else loadRecent();
+  if (cache.has(scope)) { renderRecent(p); checkRecent(); return p; }
+  // 起動直後：端末に保存した前回の一覧を先に出し、裏で取り直して差し替える
+  const sc = scope;
+  cget("r:" + sc).then((items) => {
+    if (items && !cache.has(sc) && sc === scope && p.isConnected) { cache.set(sc, items); renderRecent(p); }
+  }).finally(() => loadRecent());
   return p;
 }
 function renderRecent(p) {
@@ -79,6 +85,7 @@ export async function loadRecent() {
     const items = await listRecent(await scopeId());
     if (my !== seq || sc !== scope) return;
     cache.set(sc, items); pending = 0;
+    cset("r:" + sc, items);
     const p = recentEl(); if (p) renderRecent(p);
   } catch (e) { fail("読み込めませんでした", e); }
 }
@@ -160,13 +167,32 @@ function renderKids(ul, d, depth, base) {
   if (!nodes.length) nodes.push(h(`<li class="empty-node" style="--depth:${depth}">空のフォルダ</li>`));
   ul.replaceChildren(...nodes);
 }
+// 中身の取得。指が触れた時点（prefetchKids）で始めたものがあれば使う（ADR-0020）
+const kidsInflight = new Map(); // id -> {at, p}
+function fetchKids(id) {
+  const hit = kidsInflight.get(id);
+  if (hit && Date.now() - hit.at < 5000) { kidsInflight.delete(id); return hit.p; }
+  return listChildren(id);
+}
+export function prefetchKids(li) {
+  const id = li.dataset.id;
+  if (li.classList.contains("open") || kidsInflight.has(id)) return;
+  const p = listChildren(id); p.catch(() => {});
+  kidsInflight.set(id, { at: Date.now(), p });
+}
+async function cachedKids(id) {
+  let c = kidsCache.get(id);
+  if (!c) { c = await cget("k:" + id); if (c) kidsCache.set(id, c); }
+  return c;
+}
 async function fillKids(li) {
   const id = li.dataset.id, depth = Number(li.style.getPropertyValue("--depth")) + 1, ul = $(".kids > ul", li);
-  const cached = kidsCache.get(id);
+  const net = fetchKids(id); net.catch(() => {});
+  const cached = await cachedKids(id);
   if (cached) renderKids(ul, cached, depth, li._path);
   try {
-    const d = await listChildren(id);
-    kidsCache.set(id, d);
+    const d = await net;
+    kidsCache.set(id, d); cset("k:" + id, d);
     $(".count", li).textContent = d.folders.length + d.files.length || "";
     if (!cached || sig(cached) !== sig(d)) renderKids(ul, d, depth, li._path);
   } catch (e) { if (!cached) fail("読み込めませんでした", e); else console.warn(e); }
@@ -192,10 +218,11 @@ function folderPage() {
   renderPins($(".pins", p));
   getRootId().then(async (rootId) => {
     // root は「開いた状態の1つのフォルダ」と同じ作りで、直下をそのまま出す
-    const cached = kidsCache.get(rootId);
+    const net = listChildren(rootId); net.catch(() => {});
+    const cached = await cachedKids(rootId);
     if (cached) renderKids(drive, cached, 0, "");
-    const d = await listChildren(rootId);
-    kidsCache.set(rootId, d);
+    const d = await net;
+    kidsCache.set(rootId, d); cset("k:" + rootId, d);
     if (!cached || sig(cached) !== sig(d)) renderKids(drive, d, 0, "");
   }).catch((e) => fail("読み込めませんでした", e));
   return p;

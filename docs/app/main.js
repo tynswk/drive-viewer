@@ -3,10 +3,10 @@ import { $, h, T, EASE, state, fail, ago, freshness } from "./ui.js";
 import { store, isAuthed, login, logout, handleRedirect } from "./auth.js";
 import { reg } from "./drive.js";
 import { media, minimizeMedia, expandMedia, stopMedia, togglePlay, setRate } from "./media.js";
-import { showTab, showNewer, searchBox, initScopeMenu, appMenu, toggleNode, checkRecent, nodeMenu, pinAction } from "./pages.js";
+import { showTab, showNewer, searchBox, initScopeMenu, appMenu, toggleNode, checkRecent, nodeMenu, pinAction, prefetchKids } from "./pages.js";
 import {
   openFile, openById, closeDoc, backDoc, isDirty, cancelEdit, resolveDiscard, enterEdit, saveEdit, setMode,
-  mergeAction, mergeView, mergePick, showMore, moreAction, checkDocUpdate,
+  mergeAction, mergeView, mergePick, showMore, moreAction, checkDocUpdate, prefetch,
 } from "./viewer.js";
 
 /* ===================== 起動 ===================== */
@@ -74,6 +74,13 @@ document.addEventListener("pointerup", (e) => {
     d.s.animate([{ transform: tr }, { transform: "none" }], { duration: T(), easing: EASE() });
   }
 });
+
+/* ===================== 指が触れた時点で取得を始める（ADR-0020） ===================== */
+document.addEventListener("pointerdown", (e) => {
+  const row = e.target.closest(".row"); if (!row || row.closest(".sheet")) return;
+  if (row.dataset.id) prefetch(reg.get(row.dataset.id));
+  else if ("toggle" in row.dataset) prefetchKids(row.closest(".node"));
+}, { passive: true });
 
 /* ===================== フォルダ行の長押し（右クリックも）でメニュー ===================== */
 let press = null, swallowClick = false;

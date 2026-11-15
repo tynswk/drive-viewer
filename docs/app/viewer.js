@@ -1,7 +1,8 @@
 // ファイルを開くシート：表示・編集・衝突のマージ・更新の追従
 import { $, h, esc, icon, ago, freshness, fmtSize, growFrom, shrinkTo, toast, fail, state } from "./ui.js";
 import { swToken } from "./auth.js";
-import { getVersion, getMeta, fetchText, fetchBuffer, saveText, fullPath, findByPath } from "./drive.js";
+import { getVersion, getMeta, fetchBuffer, saveText, fullPath, findByPath } from "./drive.js";
+import { getBody, putBody } from "./cache.js";
 import { kindOf, EDITABLE } from "./kind.js";
 import { diff3 } from "./diff.js";
 import { openMedia } from "./media.js";
@@ -111,22 +112,68 @@ function updateMeta(s) {
 
 /* ===================== 読み込み ===================== */
 // version を先に取ってから本文を取る（間に更新が入っても、保存時に衝突として検知できる側へ倒す）
+/* ===================== 読み込み（ADR-0020） ===================== */
+// 端末に保存した本文を先に出し、裏で版を確かめる。版が同じなら通信は版の確認1回だけ。
+// 保存が無いときは、版の確認と本文の取得を同時に走らせる。指が触れた時点（prefetch）から始める
+const BODY = new Set(["md", "code", "html", "pdf"]);
+const TEXT = new Set(["md", "code", "html"]);
+const dec = new TextDecoder();
+const inflight = new Map(); // id -> {at, v, cached, b}
+
+function startFetch(f) {
+  const hit = inflight.get(f.id);
+  if (hit && Date.now() - hit.at < 5000) return hit;
+  const e = { at: Date.now(), v: getVersion(f.id), cached: getBody(f.id) };
+  // 一覧で分かっている版と保存の版が同じなら、本文は取りに行かない（版の確認で違えば取り直す）
+  e.b = e.cached.then((c) => (c && c.version === f.version ? null : fetchBuffer(f.id)));
+  e.v.catch(() => {}); e.b.catch(() => {});
+  inflight.set(f.id, e);
+  return e;
+}
+export function prefetch(f) {
+  if (f && BODY.has(kindOf(f))) startFetch(f);
+}
+function applyMeta(f, m) {
+  Object.assign(f, { version: m.version, modifiedTime: m.modifiedTime, t: Date.parse(m.modifiedTime), ...(m.size != null && { size: Number(m.size) }) });
+}
+function setBody(s, version, buf) {
+  s._version = version;
+  if (TEXT.has(s._kind)) s._text = dec.decode(buf); else s._buf = buf;
+}
+function showBody(s) {
+  renderBody(s, s._mode || 0); setSeg(s, s._mode || 0);
+  const eb = $('[data-act="edit"]', s); if (eb && !s._editing) eb.hidden = false;
+}
+
 async function load(s) {
   const f = s._file, k = s._kind;
-  s._loading = true;
+  s._loading = true; s._notifiedV = null;
   try {
-    if (k !== "other") {
-      const m = await getVersion(f.id);
-      if (!s.isConnected) return;
-      s._version = m.version;
-      Object.assign(f, { version: m.version, modifiedTime: m.modifiedTime, t: Date.parse(m.modifiedTime), ...(m.size != null && { size: Number(m.size) }) });
-      if (k === "md" || k === "code" || k === "html") s._text = await fetchText(f.id);
-      if (!s.isConnected) return;
-      updateMeta(s);
+    if (k === "other") return showBody(s);
+    if (!BODY.has(k)) { // 画像：版だけ確かめて SW 経由で表示
+      const m = await getVersion(f.id); if (!s.isConnected) return;
+      applyMeta(f, m); s._version = m.version; updateMeta(s); return showBody(s);
     }
-    s._notifiedV = null;
-    renderBody(s, 0); setSeg(s, 0);
-    const eb = $('[data-act="edit"]', s); if (eb) eb.hidden = false;
+    const e = startFetch(f);
+    inflight.delete(f.id);
+    const cached = await e.cached;
+    if (!s.isConnected) return;
+    if (cached) { setBody(s, cached.version, cached.buf); showBody(s); }
+    const m = await e.v;
+    if (!s.isConnected) return;
+    applyMeta(f, m); updateMeta(s);
+    if (cached && cached.version === m.version) return;
+    let buf = await e.b;
+    // 同時に取った本文が版と食い違う（その間に書き換えられた）ときは、版→本文の順で取り直す
+    let ver = m;
+    if (!buf || buf.byteLength !== Number(m.size)) {
+      ver = await getVersion(f.id); buf = await fetchBuffer(f.id);
+      applyMeta(f, ver); updateMeta(s);
+    }
+    if (!s.isConnected) return;
+    putBody(f.id, ver.version, buf.slice(0));
+    if (s._editing) { s._notifiedV = ver.version; toast(`${f.name} が別の場所で更新されました`); return; }
+    setBody(s, ver.version, buf); showBody(s);
   } catch (e) {
     fail("読み込めませんでした", e);
   } finally { s._loading = false; }
@@ -165,7 +212,8 @@ async function renderPdf(s, body) {
   const tok = (s._rt = {});
   const pdfjs = await import("../vendor/pdf.min.mjs");
   pdfjs.GlobalWorkerOptions.workerSrc = VENDOR + "pdf.worker.min.mjs";
-  const data = await fetchBuffer(s._file.id);
+  // pdf.js は渡したバッファを worker に移して使えなくするので、写しを渡す
+  const data = s._buf ? s._buf.slice(0) : await fetchBuffer(s._file.id);
   if (s._rt !== tok) return;
   const task = pdfjs.getDocument({
     data, cMapUrl: VENDOR + "pdfjs/cmaps/", cMapPacked: true, standardFontDataUrl: VENDOR + "pdfjs/standard_fonts/",
@@ -242,6 +290,7 @@ async function persist(s, text) {
   const r = await saveText(f.id, text, f.mimeType);
   Object.assign(f, { version: r.version, modifiedTime: r.modifiedTime, t: Date.parse(r.modifiedTime), ...(r.size != null && { size: Number(r.size) }) });
   s._text = text; s._version = r.version;
+  putBody(f.id, r.version, new TextEncoder().encode(text).buffer);
   updateMeta(s);
 }
 

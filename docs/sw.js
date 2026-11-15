@@ -1,12 +1,12 @@
 // 1) stream/{fileId} を Drive の alt=media に中継する（Content-Range を組み立て直す。ADR-0004）
 // 2) 画面と app/ はネットワーク優先（つながらなければキャッシュ）、vendor は stale-while-revalidate（ADR-0015）
 // VERSION を上げると、新しい SW が全ファイルを取り直して古いキャッシュを捨てる
-const VERSION = "p1-3";
+const VERSION = "p1-4";
 const CACHE = "app-" + VERSION;
 const PRECACHE = [
   "./", "manifest.webmanifest", "icon-180.png", "icon-192.png", "icon-512.png",
   "app/app.css", "app/main.js", "app/ui.js", "app/auth.js", "app/drive.js", "app/pages.js",
-  "app/viewer.js", "app/media.js", "app/diff.js", "app/kind.js",
+  "app/viewer.js", "app/media.js", "app/diff.js", "app/kind.js", "app/cache.js",
   "vendor/marked.esm.js", "vendor/purify.es.mjs", "vendor/pdf.min.mjs", "vendor/pdf.worker.min.mjs",
 ];
 const ROOT = new URL("./", self.registration.scope).href;
