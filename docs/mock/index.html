@@ -168,7 +168,6 @@ body.has-mini .sheet:not(.media) .scroll { padding-bottom: calc(var(--mini) + en
   padding: 4px var(--pad) 24px; background: var(--paper); color: var(--ink);
   font: .875rem/1.65 ui-monospace, "SF Mono", Menlo, monospace; field-sizing: content;
 }
-.editbar { display: flex; gap: 8px; justify-content: flex-end; padding: 8px var(--pad) calc(8px + env(safe-area-inset-bottom)); background: var(--paper); border-top: 1px solid var(--line); }
 .btn { min-height: var(--target); padding: 0 18px; border-radius: 10px; font-weight: 600; }
 .btn.ghost { color: var(--ink-2); }
 .btn.solid { background: var(--ink); color: var(--paper); }
@@ -273,6 +272,15 @@ dialog .acts { display: grid; gap: 8px; }
   </div>
 </dialog>
 
+<dialog id="discard">
+  <h3>編集を破棄しますか</h3>
+  <p>保存していない変更は消えます。</p>
+  <div class="acts">
+    <button class="btn solid" data-d="discard">破棄する</button>
+    <button class="btn ghost" data-d="keep">編集に戻る</button>
+  </div>
+</dialog>
+
 <!-- lucide のアイコン（ISC）。必要な分だけ inline -->
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
   <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></symbol>
@@ -298,6 +306,7 @@ dialog .acts { display: grid; gap: 8px; }
   <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></symbol>
   <symbol id="i-play" viewBox="0 0 24 24"><polygon points="6 3 20 12 6 21 6 3"/></symbol>
   <symbol id="i-pause" viewBox="0 0 24 24"><rect x="14" y="4" width="4" height="16" rx="1"/><rect x="6" y="4" width="4" height="16" rx="1"/></symbol>
+  <symbol id="i-square-check" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="m9 12 2 2 4-4"/></symbol>
   <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
 </svg>
 
@@ -351,6 +360,7 @@ const NEWCOMERS = [
 const EXTRA_DIRS = ["Claude/memory", "Music", "大学", "大学/計算力学"];
 const PINS = ["Claude", "Claude/dev"];
 const ICON = { md: "i-file-text", code: "i-file-code", video: "i-film", audio: "i-music", image: "i-image", pdf: "i-pdf", html: "i-globe" };
+[...FILES, ...NEWCOMERS].forEach((f) => (f.rv = 1));
 const allFiles = () => [...FILES, ...NEWCOMERS.filter((n) => n.t)];
 const byId = (id) => [...FILES, ...NEWCOMERS].find((x) => x.id === id);
 
@@ -540,7 +550,7 @@ function viewerSheet(f) {
     <header class="top" data-grab>
       <button class="icon-btn" data-act="close" aria-label="閉じる">${icon("i-chev-d")}</button>
       <span class="title">${esc(f.name)}</span>
-      ${textual ? `<button class="icon-btn" data-act="edit" aria-label="編集">${icon("i-pencil")}</button>` : ""}
+      ${textual ? `<button class="icon-btn" data-act="cancel-edit" aria-label="編集をやめる" hidden>${icon("i-x")}</button><button class="icon-btn" data-act="edit" aria-label="編集">${icon("i-pencil")}</button>` : ""}
       <button class="icon-btn" data-act="more" aria-label="その他">${icon("i-more")}</button>
     </header>
     <div class="scroll">
@@ -572,14 +582,37 @@ function renderBody(s, mode) {
   else if (f.kind === "image") body.innerHTML = `<div style="padding:0 var(--pad)"><div style="aspect-ratio:4/3;border-radius:8px;background:var(--paper-2);display:grid;place-items:center;color:var(--ink-2)">${icon("i-image")}</div></div>`;
 }
 const setSeg = (s, m) => s.querySelectorAll(".seg button").forEach((b) => b.setAttribute("aria-pressed", b.dataset.mode == m));
+// 編集中は ✎ が ☑（保存）に変わり、その左に ×（やめる）が出る。どちらも常に押せる。
+function setEditButtons(s, editing) {
+  const main = $('[data-act="edit"],[data-act="save"]', s);
+  main.dataset.act = editing ? "save" : "edit";
+  main.setAttribute("aria-label", editing ? "保存" : "編集");
+  main.innerHTML = icon(editing ? "i-square-check" : "i-pencil");
+  $('[data-act="cancel-edit"]', s).hidden = !editing;
+}
 function enterEdit(s) {
   const f = s._file;
-  $(".subbar", s).hidden = true; $('[data-act="edit"]', s).hidden = true;
+  s._editing = true; s._editBase = f.body; s._editV = f.rv;
+  $(".subbar", s).hidden = true; setEditButtons(s, true);
   $(".body", s).innerHTML = `<textarea class="edit" spellcheck="false" aria-label="${esc(f.name)} を編集"></textarea>`;
-  s.append(h(`<div class="editbar"><button class="btn ghost" data-act="discard">破棄</button><button class="btn solid" data-act="save">保存</button></div>`));
   const ta = $("textarea", s); ta.value = f.body; ta.focus({ preventScroll: true });
 }
-function leaveEdit(s) { $(".subbar", s).hidden = false; $('[data-act="edit"]', s).hidden = false; $(".editbar", s)?.remove(); renderBody(s, 0); setSeg(s, 0); }
+function leaveEdit(s) { s._editing = false; $(".subbar", s).hidden = false; setEditButtons(s, false); renderBody(s, 0); setSeg(s, 0); }
+const editText = (s) => $("textarea.edit", s)?.value ?? "";
+const isDirty = (s) => !!s._editing && editText(s) !== s._editBase;
+function saveEdit(s) {
+  const f = s._file;
+  if (f.rv !== s._editV) { $("#conflict").showModal(); return; }   // 開いた後に別の場所で更新された
+  if (isDirty(s)) { f.body = editText(s); f.rv++; f.t = Date.now(); toast("保存しました"); }
+  leaveEdit(s);
+}
+// やめる：変更が無ければそのまま抜ける。変更があるときだけ確認する
+let afterDiscard = null;
+function cancelEdit(s, then) {
+  if (!isDirty(s)) { leaveEdit(s); then && then(); return; }
+  afterDiscard = then || null;
+  $("#discard").showModal();
+}
 
 /* ===================== メディア：全画面 ⇄ 下部のミニバー ===================== */
 function openMedia(f, originEl) {
@@ -678,6 +711,11 @@ document.addEventListener("pointerup", (e) => {
   const v = d.dy / Math.max(1, e.timeStamp - d.t0); // px/ms
   if (d.mini) { if (d.dy < -30 || v < -0.3) expandMedia(); return; }
   const tr = d.s.style.transform;
+  if ((d.dy > 90 || v > 0.5) && isDirty(d.s)) {
+    d.s.style.transform = ""; d.s.animate([{ transform: tr }, { transform: "none" }], { duration: T(), easing: EASE() });
+    cancelEdit(d.s, () => history.back());
+    return;
+  }
   if (d.dy > 90 || v > 0.5) {
     d.s._dragTr = tr;
     history.back(); // popstate で閉じる／収める
@@ -712,15 +750,29 @@ document.addEventListener("click", (e) => {
   if ("toggle" in t.dataset) { expand(t.closest(".node")); return; }
   if (t.dataset.mode) { setSeg(s, t.dataset.mode); renderBody(s, Number(t.dataset.mode)); return; }
   if (t.dataset.rate) { t.parentElement.querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", b === t)); if (media.el) media.el.playbackRate = Number(t.dataset.rate); return; }
-  if (t.dataset.c) { $("#conflict").close(); if (docSheet && t.dataset.c !== "cancel") { leaveEdit(docSheet); toast(t.dataset.c === "reload" ? "最新を読み込みました" : "保存しました"); } return; }
+  if (t.dataset.c) {
+    $("#conflict").close();
+    const ds = docSheet; if (!ds || t.dataset.c === "cancel") return;
+    const f = ds._file;
+    if (t.dataset.c === "reload") { f.body = f.remote ?? f.body; leaveEdit(ds); toast("最新を読み込みました"); }
+    else { f.body = editText(ds); f.rv++; f.t = Date.now(); leaveEdit(ds); toast("上書きして保存しました"); }
+    return;
+  }
+  if (t.dataset.d) {
+    $("#discard").close();
+    if (t.dataset.d === "discard" && docSheet) { leaveEdit(docSheet); const fn = afterDiscard; afterDiscard = null; fn && fn(); }
+    else afterDiscard = null;
+    return;
+  }
   switch (t.dataset.act) {
-    case "close": case "minimize": history.back(); break;
+    case "close": if (s._editing) cancelEdit(s, () => history.back()); else history.back(); break;
+    case "minimize": history.back(); break;
     case "expand": expandMedia(); break;
     case "playpause": togglePlay(); break;
     case "stop": stopMedia(); break;
     case "edit": enterEdit(s); break;
-    case "discard": leaveEdit(s); break;
-    case "save": $("#conflict").showModal(); break;
+    case "cancel-edit": cancelEdit(s); break;
+    case "save": saveEdit(s); break;
     case "newer": NEWCOMERS.forEach((n) => (n.t = Date.now() - 30e3)); pending = []; renderRecent(p); scrollTo({ top: 0 }); break;
     case "search": {
       if ($(".search", p)) break;
@@ -759,9 +811,12 @@ let armed = false;
 function armUpdate(s) {
   if (armed) return; armed = true;
   setTimeout(() => {
-    if (docSheet !== s || $("textarea", s)) { armed = false; return; }
+    if (docSheet !== s) { armed = false; return; }
+    const f = s._file;
+    f.rv++; f.remote = f.body + "\n## 追記\n\nエージェントが書き足した段落。\n";
+    if (s._editing) { toast("PLAN.md が別の場所で更新されました"); return; }
     toast("PLAN.md が更新されました", "再読込", () => {
-      const f = s._file; f.t = Date.now(); f.body += "\n## 追記\n\nエージェントが書き足した段落。\n";
+      f.body = f.remote; f.t = Date.now();
       $(".meta", s).textContent = `今に更新 ・ ${f.size}`; $(".meta", s).classList.add("fresh");
       renderBody(s, 0); setSeg(s, 0);
     });
