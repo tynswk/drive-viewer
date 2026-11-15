@@ -112,6 +112,23 @@ export async function resolvePath(path) {
   return parent;
 }
 
+/* ===== パス → ファイル（md 内の相対リンク・ADR-0019） ===== */
+// path はマイドライブからの相対。フォルダを指していたら、その中の README.md を返す
+const qName = (s) => s.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+export async function findByPath(path) {
+  const parts = path.split("/").filter(Boolean);
+  const name = parts.pop();
+  const dir = parts.length ? await resolvePath(parts.join("/")) : await getRootId();
+  if (!dir || !name) return null;
+  const q = `'${dir}' in parents and name='${qName(name)}' and trashed=false`;
+  const d = await api("files?" + new URLSearchParams({ q, pageSize: "1", fields: `files(${FIELDS})` }));
+  if (!d.files.length) return null;
+  const f = norm(d.files[0]);
+  if (f.mimeType !== FOLDER) return f;
+  const r = await api("files?" + new URLSearchParams({ q: `'${f.id}' in parents and name='README.md' and trashed=false`, pageSize: "1", fields: `files(${FIELDS})` }));
+  return r.files.length ? norm(r.files[0]) : null;
+}
+
 /* ===== 最近（ADR-0016） ===== */
 // scopeId が null ならマイドライブ全体。範囲に絞り、除外を捨てた結果を返す
 export async function listRecent(scopeId, { want = 40, maxPages = 5 } = {}) {

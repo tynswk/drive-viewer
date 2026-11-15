@@ -5,7 +5,7 @@ import { reg } from "./drive.js";
 import { media, minimizeMedia, expandMedia, stopMedia, togglePlay, setRate } from "./media.js";
 import { showTab, showNewer, searchBox, initScopeMenu, appMenu, toggleNode, checkRecent, nodeMenu, pinAction } from "./pages.js";
 import {
-  openFile, openById, closeDoc, isDirty, cancelEdit, resolveDiscard, enterEdit, saveEdit, setMode,
+  openFile, openById, closeDoc, backDoc, isDirty, cancelEdit, resolveDiscard, enterEdit, saveEdit, setMode,
   mergeAction, mergeView, mergePick, showMore, moreAction, checkDocUpdate,
 } from "./viewer.js";
 
@@ -103,7 +103,7 @@ addEventListener("popstate", () => {
   if (!d) return;
   // 変更があるまま OS の戻るで抜けようとしたときも、破棄の確認を挟む
   if (isDirty(d)) { history.pushState({ sheet: "doc" }, ""); cancelEdit(d, () => history.back()); return; }
-  closeDoc(d._dragTr);
+  backDoc(d._dragTr);
 });
 
 /* ===================== 操作 ===================== */

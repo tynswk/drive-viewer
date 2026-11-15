@@ -1,18 +1,43 @@
 // ファイルを開くシート：表示・編集・衝突のマージ・更新の追従
 import { $, h, esc, icon, ago, freshness, fmtSize, growFrom, shrinkTo, toast, fail, state } from "./ui.js";
 import { swToken } from "./auth.js";
-import { getVersion, getMeta, fetchText, fetchBuffer, saveText, fullPath } from "./drive.js";
+import { getVersion, getMeta, fetchText, fetchBuffer, saveText, fullPath, findByPath } from "./drive.js";
 import { kindOf, EDITABLE } from "./kind.js";
 import { diff3 } from "./diff.js";
 import { openMedia } from "./media.js";
 import { marked } from "../vendor/marked.esm.js";
 import DOMPurify from "../vendor/purify.es.mjs";
 
-// md 内のリンクは別タブで開く（アプリから離れない）
+// md 内のリンク：外部URLは別タブ、相対パスはアプリ内でそのファイルを開く（ADR-0019）
+const isRel = (href) => !/^([a-z][a-z0-9+.-]*:|\/\/|#|\/)/i.test(href);
 DOMPurify.addHook("afterSanitizeAttributes", (n) => {
   const href = n.tagName === "A" && n.getAttribute("href");
-  if (href && !href.startsWith("#")) { n.setAttribute("target", "_blank"); n.setAttribute("rel", "noopener noreferrer"); }
+  if (!href || href.startsWith("#")) return;
+  if (isRel(href)) n.setAttribute("data-rel", href);
+  else { n.setAttribute("target", "_blank"); n.setAttribute("rel", "noopener noreferrer"); }
 });
+// 開いているファイルのフォルダ（マイドライブからの相対）を基準に、href を解いたパスを返す
+async function relTarget(f, href) {
+  const dir = (await fullPath(f)).split("/").slice(1, -1);
+  let rel = href.split(/[?#]/)[0];
+  try { rel = decodeURIComponent(rel); } catch {}
+  for (const seg of rel.split("/")) {
+    if (seg === "..") dir.pop();
+    else if (seg && seg !== ".") dir.push(seg);
+  }
+  return dir.join("/");
+}
+async function followLink(s, a) {
+  try {
+    const path = await relTarget(s._file, a.dataset.rel);
+    const f = path && await findByPath(path);
+    if (!f) { toast("リンク先が見つかりません"); return; }
+    if (state.doc !== s) return;
+    const back = [...(s._back || []), s._file];
+    openFile(f, a);
+    if (state.doc) state.doc._back = back;
+  } catch (e) { fail("リンク先を開けませんでした", e); }
+}
 
 const VENDOR = new URL("../vendor/", import.meta.url).href;
 
@@ -34,6 +59,15 @@ export function openFile(f, originEl) {
 }
 export async function openById(id) {
   try { openFile(await getMeta(id), null); } catch (e) { fail("読み込めませんでした", e); }
+}
+// リンクで来たシートを閉じたら、来た元のファイルを開き直す
+export function backDoc(fromTransform) {
+  const back = state.doc?._back;
+  if (!back?.length) return closeDoc(fromTransform);
+  const prev = back[back.length - 1];
+  closeDoc(fromTransform);
+  openFile(prev, null);
+  if (state.doc) state.doc._back = back.slice(0, -1);
 }
 export function closeDoc(fromTransform) {
   const s = state.doc; if (!s) return;
@@ -62,6 +96,10 @@ function viewerSheet(f, kind) {
     </div>
   </section>`);
   s._file = f; s._kind = kind; s._mode = 0; s._text = ""; s._version = null;
+  $(".body", s).addEventListener("click", (e) => {
+    const a = e.target.closest("a[data-rel]"); if (!a) return;
+    e.preventDefault(); followLink(s, a);
+  });
   updateMeta(s);
   return s;
 }
