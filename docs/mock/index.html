@@ -1,0 +1,629 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1b1e23" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Drive Viewer モック</title>
+<style>
+/* ===== tokens ===== */
+:root {
+  --paper: #ffffff;
+  --paper-2: #f3f4f6;
+  --ink: #1f2328;
+  --ink-2: #646b75;
+  --line: #e4e6ea;
+  --fresh: #b8760f;       /* 琥珀：更新されたばかり（明るい地ではコントラストのため濃く） */
+  --fresh-bg: #fbf1df;
+  --focus: #2f6fdf;
+  --target: 44px;
+  --pad: 16px;
+  --bar: 52px;
+  --ease: cubic-bezier(.2, .7, .2, 1);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #1b1e23;
+    --paper-2: #23272d;
+    --ink: #e9eaec;
+    --ink-2: #9aa1ab;
+    --line: #2e333a;
+    --fresh: #e3a23f;
+    --fresh-bg: #3a2e1a;
+    --focus: #7aa7ff;
+  }
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { height: 100%; margin: 0; }
+body {
+  background: var(--paper); color: var(--ink);
+  font: 100%/1.5 -apple-system, "Hiragino Sans", "Hiragino Kaku Gothic ProN", system-ui, sans-serif;
+  -webkit-text-size-adjust: 100%;
+  overflow: hidden;
+}
+@supports (font: -apple-system-body) { html { font: -apple-system-body; } }
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 6px; }
+svg.i { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+
+/* ===== stack（横スクロールスナップで積む。戻るはスワイプ） ===== */
+.stack {
+  position: fixed; inset: 0;
+  display: flex; overflow-x: auto; overflow-y: hidden;
+  scroll-snap-type: x mandatory; overscroll-behavior-x: contain;
+  scrollbar-width: none;
+}
+.stack::-webkit-scrollbar { display: none; }
+@media (prefers-reduced-motion: no-preference) { .stack { scroll-behavior: smooth; } }
+.view {
+  flex: 0 0 100%; height: 100%;
+  scroll-snap-align: start; scroll-snap-stop: always;
+  overflow-y: auto; overscroll-behavior-y: contain;
+  background: var(--paper);
+  padding-bottom: calc(var(--bar) + env(safe-area-inset-bottom) + 24px);
+}
+
+/* ===== top bar ===== */
+.top {
+  position: sticky; top: 0; z-index: 2;
+  display: flex; align-items: center; gap: 4px;
+  min-height: calc(var(--bar) + env(safe-area-inset-top));
+  padding: env(safe-area-inset-top) max(8px, env(safe-area-inset-right)) 0 max(8px, env(safe-area-inset-left));
+  background: color-mix(in srgb, var(--paper) 92%, transparent);
+  -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+  border-bottom: 1px solid transparent;
+}
+.view.scrolled .top { border-bottom-color: var(--line); }
+.top .title { flex: 1; min-width: 0; font-weight: 600; font-size: 1.0625rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.icon-btn { display: inline-grid; place-items: center; min-width: var(--target); min-height: var(--target); border-radius: 10px; color: var(--ink); }
+.icon-btn:active { background: var(--paper-2); }
+.scope { display: inline-flex; align-items: center; gap: 2px; min-height: var(--target); padding: 0 8px; font-weight: 600; font-size: 1.0625rem; border-radius: 10px; }
+.scope:active { background: var(--paper-2); }
+.scope svg { width: 16px; height: 16px; color: var(--ink-2); }
+
+/* ===== list ===== */
+.group-h {
+  position: sticky; top: calc(var(--bar) + env(safe-area-inset-top)); z-index: 1;
+  padding: 14px var(--pad) 6px; font-size: .8125rem; color: var(--ink-2);
+  background: var(--paper);
+}
+.rows { list-style: none; margin: 0; padding: 0; }
+.row {
+  display: grid; grid-template-columns: 28px 1fr auto; column-gap: 12px; align-items: center;
+  width: 100%; min-height: 60px; padding: 8px var(--pad); text-align: left;
+  content-visibility: auto; contain-intrinsic-size: auto 60px;
+}
+.row:active { background: var(--paper-2); }
+.row + .row { box-shadow: inset 0 1px 0 var(--line); }
+.row .ico { color: var(--ink-2); display: grid; place-items: center; }
+.row .name { font-size: 1rem; word-break: break-all; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.row .path { font-size: .8125rem; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row time { font-size: .8125rem; color: var(--ink-2); font-variant-numeric: tabular-nums; white-space: nowrap; align-self: start; padding-top: 2px; }
+.row.fresh time { color: var(--fresh); font-weight: 600; }
+.row.fresh time::before { content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--fresh); margin-right: 6px; vertical-align: 2px; }
+.row.warm time { color: var(--fresh); }
+
+/* 新着ピル */
+.pill {
+  position: sticky; top: calc(var(--bar) + env(safe-area-inset-top) + 8px); z-index: 3;
+  display: flex; justify-content: center; height: 0; overflow: visible;
+}
+.pill button {
+  height: 36px; padding: 0 14px; border-radius: 18px;
+  background: var(--fresh); color: #1b1300; font-size: .875rem; font-weight: 600;
+  display: inline-flex; align-items: center; gap: 6px;
+  translate: 0 -60px; opacity: 0; transition: translate .3s var(--ease), opacity .2s;
+}
+.pill.show button { translate: 0 0; opacity: 1; }
+.pill svg { width: 16px; height: 16px; }
+
+/* ===== bottom tabs ===== */
+.tabs {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 5;
+  display: grid; grid-template-columns: 1fr 1fr;
+  padding: 0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  background: color-mix(in srgb, var(--paper) 92%, transparent);
+  -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+  border-top: 1px solid var(--line);
+  transition: translate .25s var(--ease);
+}
+.tabs.hide { translate: 0 110%; }
+.tabs button { min-height: var(--bar); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: .6875rem; color: var(--ink-2); }
+.tabs button[aria-current="page"] { color: var(--ink); }
+.tabs button[aria-current="page"] svg { stroke-width: 2.25; }
+
+/* ===== viewer ===== */
+.seg { display: inline-flex; padding: 2px; border-radius: 9px; background: var(--paper-2); }
+.seg button { min-height: 32px; padding: 0 12px; border-radius: 7px; font-size: .875rem; color: var(--ink-2); }
+.seg button[aria-pressed="true"] { background: var(--paper); color: var(--ink); box-shadow: 0 0 0 1px var(--line); }
+.subbar { display: flex; align-items: center; gap: 8px; padding: 6px var(--pad) 10px; }
+.subbar .meta { flex: 1; font-size: .8125rem; color: var(--ink-2); }
+.subbar .meta.fresh { color: var(--fresh); }
+
+.doc { padding: 4px var(--pad) 24px; max-width: 42rem; }
+.doc h1 { font-size: 1.5rem; line-height: 1.3; margin: .4em 0 .6em; }
+.doc h2 { font-size: 1.1875rem; line-height: 1.35; margin: 1.6em 0 .5em; padding-top: .6em; border-top: 1px solid var(--line); }
+.doc p, .doc li { line-height: 1.75; }
+.doc code { font: .875em ui-monospace, "SF Mono", Menlo, monospace; background: var(--paper-2); padding: .1em .35em; border-radius: 4px; }
+.doc pre { background: var(--paper-2); padding: 12px; border-radius: 8px; overflow-x: auto; }
+.doc pre code { background: none; padding: 0; }
+.doc table { border-collapse: collapse; font-size: .875rem; display: block; overflow-x: auto; }
+.doc th, .doc td { border-bottom: 1px solid var(--line); padding: 6px 10px; text-align: left; vertical-align: top; }
+.raw { margin: 0; padding: 4px var(--pad) 24px; font: .8125rem/1.65 ui-monospace, "SF Mono", Menlo, monospace; white-space: pre-wrap; word-break: break-word; tab-size: 2; }
+.edit {
+  display: block; width: 100%; min-height: 70vh; border: 0; outline: 0; resize: none;
+  padding: 4px var(--pad) 24px; background: var(--paper); color: var(--ink);
+  font: .875rem/1.65 ui-monospace, "SF Mono", Menlo, monospace;
+  field-sizing: content;
+}
+.editbar {
+  position: sticky; bottom: 0; display: flex; gap: 8px; justify-content: flex-end;
+  padding: 8px var(--pad) calc(8px + env(safe-area-inset-bottom));
+  background: var(--paper); border-top: 1px solid var(--line);
+}
+.btn { min-height: var(--target); padding: 0 18px; border-radius: 10px; font-weight: 600; }
+.btn.ghost { color: var(--ink-2); }
+.btn.solid { background: var(--ink); color: var(--paper); }
+
+.player { padding: 0 var(--pad); }
+.player video, .player audio { display: block; width: 100%; border-radius: 10px; background: #000; }
+.player video { aspect-ratio: 16 / 9; }
+.chips { display: flex; gap: 6px; padding: 12px 0; overflow-x: auto; scrollbar-width: none; }
+.chips button { min-height: 36px; min-width: 52px; padding: 0 10px; border-radius: 18px; border: 1px solid var(--line); font-size: .875rem; font-variant-numeric: tabular-nums; color: var(--ink-2); }
+.chips button[aria-pressed="true"] { border-color: var(--ink); color: var(--ink); font-weight: 600; }
+.kv { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; margin: 8px 0 0; font-size: .875rem; }
+.kv dt { color: var(--ink-2); }
+.kv dd { margin: 0; word-break: break-all; }
+
+.frame { display: block; width: 100%; height: calc(100dvh - var(--bar) - 60px - env(safe-area-inset-top)); border: 0; background: #fff; }
+
+.pdf { padding: 0 var(--pad); display: grid; gap: 12px; }
+.pdf .page { aspect-ratio: 1 / 1.414; background: #fff; border-radius: 4px; box-shadow: 0 0 0 1px var(--line); padding: 10%; color: #222; font-size: .75rem; }
+.pdf .page i { display: block; height: .6em; margin: .8em 0; background: #ddd; border-radius: 2px; }
+.pageno { position: sticky; bottom: calc(16px + env(safe-area-inset-bottom)); margin-left: auto; margin-right: var(--pad); width: max-content; padding: 4px 10px; border-radius: 12px; background: color-mix(in srgb, var(--ink) 80%, transparent); color: var(--paper); font-size: .75rem; font-variant-numeric: tabular-nums; }
+
+/* ===== popover / toast ===== */
+[popover] { border: 0; padding: 6px; border-radius: 14px; background: var(--paper); color: var(--ink); box-shadow: 0 8px 28px rgba(0,0,0,.18), 0 0 0 1px var(--line); min-width: 240px; }
+[popover]::backdrop { background: rgba(0,0,0,.08); }
+#scopeMenu { position: fixed; inset: auto; top: calc(var(--bar) + env(safe-area-inset-top) + 4px); left: 8px; margin: 0; }
+#moreMenu { position: fixed; inset: auto; top: calc(var(--bar) + env(safe-area-inset-top) + 4px); right: 8px; margin: 0; }
+.menu button { display: flex; align-items: center; gap: 12px; width: 100%; min-height: var(--target); padding: 0 12px; border-radius: 9px; text-align: left; }
+.menu button:active { background: var(--paper-2); }
+.menu .check { margin-left: auto; color: var(--fresh); }
+.menu hr { border: 0; border-top: 1px solid var(--line); margin: 4px 6px; }
+.menu .path { padding: 8px 12px; font-size: .8125rem; color: var(--ink-2); word-break: break-all; }
+
+.toast {
+  position: fixed; left: 50%; bottom: calc(16px + env(safe-area-inset-bottom)); z-index: 10;
+  display: flex; align-items: center; gap: 4px; padding: 4px 4px 4px 16px;
+  border-radius: 14px; background: var(--ink); color: var(--paper);
+  font-size: .9375rem; white-space: nowrap; width: max-content; translate: -50% 140%; transition: translate .3s var(--ease);
+  max-width: calc(100% - 32px);
+}
+.toast.show { translate: -50% 0; }
+.toast button { min-height: 40px; padding: 0 12px; border-radius: 10px; color: var(--fresh); font-weight: 600; }
+
+dialog { border: 0; border-radius: 16px; padding: 20px; max-width: min(340px, calc(100% - 32px)); background: var(--paper); color: var(--ink); box-shadow: 0 12px 40px rgba(0,0,0,.25); }
+dialog::backdrop { background: rgba(0,0,0,.35); }
+dialog h3 { margin: 0 0 6px; font-size: 1.0625rem; }
+dialog p { margin: 0 0 16px; color: var(--ink-2); font-size: .9375rem; line-height: 1.6; }
+dialog .acts { display: grid; gap: 8px; }
+
+.search { padding: 0 var(--pad) 8px; }
+.search input { width: 100%; min-height: var(--target); border: 0; border-radius: 10px; background: var(--paper-2); color: var(--ink); padding: 0 12px; font: inherit; }
+.empty { padding: 48px var(--pad); color: var(--ink-2); text-align: center; }
+</style>
+</head>
+<body>
+
+<div class="stack" id="stack"></div>
+
+<nav class="tabs" id="tabs" aria-label="表示の切り替え">
+  <button data-tab="recent" aria-current="page"><svg class="i"><use href="#i-clock"/></svg>最近</button>
+  <button data-tab="folders"><svg class="i"><use href="#i-folder"/></svg>フォルダ</button>
+</nav>
+
+<div popover id="scopeMenu" class="menu"></div>
+<div popover id="moreMenu" class="menu"></div>
+<div class="toast" id="toast" role="status"><span id="toastText"></span><button id="toastAct"></button></div>
+<dialog id="conflict">
+  <h3>エージェントが先に更新しています</h3>
+  <p>開いてから 2 分の間に、このファイルは別の場所で書き換えられました。</p>
+  <div class="acts">
+    <button class="btn solid" data-c="reload">最新を読み込む（編集を破棄）</button>
+    <button class="btn" style="box-shadow:0 0 0 1px var(--line)" data-c="overwrite">自分の編集で上書き</button>
+    <button class="btn ghost" data-c="cancel">戻る</button>
+  </div>
+</dialog>
+
+<!-- lucide のアイコン（ISC）。必要な分だけ inline -->
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></symbol>
+  <symbol id="i-file-text" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></symbol>
+  <symbol id="i-file-code" viewBox="0 0 24 24"><path d="M10 12.5 8 15l2 2.5"/><path d="m14 12.5 2 2.5-2 2.5"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z"/></symbol>
+  <symbol id="i-film" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M7 3v18"/><path d="M3 7.5h4"/><path d="M3 12h18"/><path d="M3 16.5h4"/><path d="M17 3v18"/><path d="M17 7.5h4"/><path d="M17 16.5h4"/></symbol>
+  <symbol id="i-music" viewBox="0 0 24 24"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></symbol>
+  <symbol id="i-image" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></symbol>
+  <symbol id="i-pdf" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M8 13h2"/><path d="M8 17h2"/><path d="M14 13h2"/><path d="M14 17h2"/></symbol>
+  <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+  <symbol id="i-chev-l" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol>
+  <symbol id="i-chev-d" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="i-chev-r" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+  <symbol id="i-more" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></symbol>
+  <symbol id="i-pencil" viewBox="0 0 24 24"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/></symbol>
+  <symbol id="i-arrow-up" viewBox="0 0 24 24"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+  <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></symbol>
+  <symbol id="i-hard-drive" viewBox="0 0 24 24"><path d="M22 12H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/><path d="M6 16h.01"/><path d="M10 16h.01"/></symbol>
+  <symbol id="i-external" viewBox="0 0 24 24"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h3"/></symbol>
+  <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></symbol>
+</svg>
+
+<script>
+/* ===================== モックデータ ===================== */
+const now = Date.now();
+const min = 60e3, hr = 60 * min, day = 24 * hr;
+const MD = `# drive-viewer 計画
+
+スマホで、エージェントが書いた Drive 上のファイルをすぐ開くための PWA。
+
+## 一覧
+
+- **最近**：フォルダを横断して \`modifiedTime desc\`
+- **フォルダ**：たどって開く。ピン留めあり
+
+| 種別 | 表示 |
+|---|---|
+| md | 表示 ⇄ 生、簡易編集 |
+| HTML | 描画 ⇄ 生 |
+| 動画・音声 | OS 標準のプレーヤー |
+
+## 保存
+
+保存前に \`version\` を見て、開いた後に書き換えられていたら上書きしない。
+
+\`\`\`js
+const v = await files.get(id, "version");
+if (v !== opened) return conflict();
+\`\`\`
+`;
+const FILES = [
+  { id: "plan", name: "PLAN.md", path: "dev/drive-viewer", t: now - 2 * min, kind: "md", body: MD, size: "6.1 KB" },
+  { id: "sw", name: "sw.js", path: "dev/drive-viewer/docs", t: now - 7 * min, kind: "code", body: `// stream/{fileId} を Drive の alt=media に中継する\nself.addEventListener("fetch", (e) => {\n  const m = new URL(e.request.url).pathname.match(/\\/stream\\/([\\w-]+)$/);\n  if (m) e.respondWith(stream(e.request, m[1]));\n});\n`, size: "1.9 KB" },
+  { id: "prev", name: "preview_1.8x.mp4", path: "dev/video-test/out", t: now - 26 * min, kind: "video", size: "84.2 MB", dur: "4:52" },
+  { id: "rep", name: "report.html", path: "research/pedal-sim", t: now - 2.5 * hr, kind: "html", size: "38 KB" },
+  { id: "take", name: "take3_bass_DI.wav", path: "music/rec/1121", t: now - 5 * hr, kind: "audio", size: "41.7 MB", dur: "3:58" },
+  { id: "notes", name: "session-notes.md", path: "dev/short-context", t: now - 1 * day - 3 * hr, kind: "md", body: "# メモ\n\n- 履歴の圧縮は 3 段階で\n- 選択読みの閾値を下げる\n", size: "1.2 KB" },
+  { id: "spec", name: "datasheet_PCM1808.pdf", path: "pico-multi/docs", t: now - 1 * day - 9 * hr, kind: "pdf", size: "512 KB", pages: 6 },
+  { id: "img", name: "pcb_top.png", path: "pico-multi/pcb", t: now - 3 * day, kind: "image", size: "2.3 MB" },
+  { id: "log", name: "build.log", path: "dev/rakukan", t: now - 4 * day, kind: "code", body: "Compiling rakukan v0.14.0\n    Finished release [optimized] target(s) in 41.2s\n", size: "88 KB" },
+];
+const NEWCOMERS = [
+  { id: "rev", name: "review.md", path: "dev/drive-viewer", t: 0, kind: "md", body: "# レビュー\n\n- 新着ピルは位置を動かさない\n- トーストは 1 つだけ\n", size: "0.8 KB" },
+  { id: "shot", name: "mock_iphone.png", path: "dev/drive-viewer/shots", t: 0, kind: "image", size: "410 KB" },
+];
+const FOLDERS = {
+  "": { pins: ["Claude", "Claude/dev", "Claude/research"], dirs: ["Claude", "Music", "大学"] },
+  "Claude": { dirs: ["dev", "memory", "research", "pico-multi", "music"], files: [] },
+  "Claude/dev": { dirs: ["drive-viewer", "rakukan", "short-context", "video-test"], files: [] },
+  "Claude/dev/drive-viewer": { dirs: ["docs", "worker", "shots"], files: ["plan", "rev"] },
+};
+const ICON = { md: "i-file-text", code: "i-file-code", video: "i-film", audio: "i-music", image: "i-image", pdf: "i-pdf", html: "i-globe" };
+
+/* ===================== 小物 ===================== */
+const $ = (s, el = document) => el.querySelector(s);
+const h = (html) => { const t = document.createElement("template"); t.innerHTML = html.trim(); return t.content.firstElementChild; };
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const icon = (id, cls = "i") => `<svg class="${cls}" aria-hidden="true"><use href="#${id}"/></svg>`;
+function ago(t) {
+  const s = (Date.now() - t) / 1000;
+  if (s < 60) return "今";
+  if (s < 3600) return Math.floor(s / 60) + "分前";
+  const d = new Date(t), d0 = new Date(); d0.setHours(0, 0, 0, 0);
+  if (t >= d0) return Math.floor(s / 3600) + "時間前";
+  if (t >= d0 - day) return `${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`;
+  return `${d.getMonth() + 1}/${d.getDate()}`;
+}
+const freshness = (t) => { const s = (Date.now() - t) / 1000; return s < 600 ? "fresh" : s < 3600 ? "warm" : ""; };
+function groupOf(t) {
+  const d0 = new Date(); d0.setHours(0, 0, 0, 0);
+  if (t >= d0) return "今日";
+  if (t >= d0 - day) return "昨日";
+  if (t >= d0 - 6 * day) return "今週";
+  return "それより前";
+}
+function md(src) {
+  // モック用の最小 Markdown（本番は marked + DOMPurify）
+  const lines = src.split("\n"); let out = "", i = 0;
+  const inline = (s) => esc(s).replace(/`([^`]+)`/g, "<code>$1</code>").replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+  while (i < lines.length) {
+    const l = lines[i];
+    if (l.startsWith("```")) { let b = ""; i++; while (i < lines.length && !lines[i].startsWith("```")) b += lines[i++] + "\n"; i++; out += `<pre><code>${esc(b)}</code></pre>`; continue; }
+    if (/^#{1,3} /.test(l)) { const n = l.match(/^#+/)[0].length; out += `<h${n}>${inline(l.slice(n + 1))}</h${n}>`; i++; continue; }
+    if (l.startsWith("|")) { const rows = []; while (i < lines.length && lines[i].startsWith("|")) rows.push(lines[i++]); const cells = (r) => r.split("|").slice(1, -1).map((c) => c.trim()); out += "<table><thead><tr>" + cells(rows[0]).map((c) => `<th>${inline(c)}</th>`).join("") + "</tr></thead><tbody>" + rows.slice(2).map((r) => "<tr>" + cells(r).map((c) => `<td>${inline(c)}</td>`).join("") + "</tr>").join("") + "</tbody></table>"; continue; }
+    if (l.startsWith("- ")) { out += "<ul>"; while (i < lines.length && lines[i].startsWith("- ")) out += `<li>${inline(lines[i++].slice(2))}</li>`; out += "</ul>"; continue; }
+    if (l.trim()) out += `<p>${inline(l)}</p>`;
+    i++;
+  }
+  return out;
+}
+
+/* ===================== スタック ===================== */
+const stack = $("#stack");
+let tab = "recent";
+let views = []; // {el, key}
+
+function push(el, key) {
+  views.push({ el, key });
+  stack.append(el);
+  watchScroll(el);
+  history.pushState({ depth: views.length - 1 }, "");
+  goTo(views.length - 1);
+  syncChrome();
+}
+function back() { history.back(); }
+addEventListener("popstate", () => {
+  const depth = Math.max(0, (history.state && history.state.depth) || 0);
+  goTo(depth);
+});
+// プログラムからの移動。終わるまでは「スワイプで戻った」判定をしない
+let target = null;
+function goTo(idx) {
+  target = idx;
+  const instant = matchMedia("(prefers-reduced-motion: reduce)").matches || document.visibilityState !== "visible";
+  stack.scrollTo({ left: stack.clientWidth * idx, behavior: instant ? "instant" : "smooth" });
+  if (instant) settleNow();
+}
+// スワイプで戻ったら、通り過ぎたビューを捨てる（スクロールが止まったところを正とする）
+let settle;
+stack.addEventListener("scroll", () => {
+  clearTimeout(settle);
+  settle = setTimeout(settleNow, 120);
+}, { passive: true });
+function settleNow() {
+    const idx = Math.round(stack.scrollLeft / stack.clientWidth);
+    if (target !== null && idx !== target) return; // まだ移動中
+    target = null;
+    if (idx < views.length - 1) {
+      const drop = views.length - 1 - idx;
+      views.splice(idx + 1).forEach((v) => v.el.remove());
+      if (history.state && history.state.depth > idx) history.go(-drop);
+    }
+    views.forEach((v, i) => (v.el.inert = i !== idx));
+    syncChrome();
+}
+
+function syncChrome() {
+  const idx = Math.round(stack.scrollLeft / stack.clientWidth);
+  const top = views[views.length - 1];
+  $("#tabs").classList.toggle("hide", views.length > 1);
+  document.title = (top && top.key) || "Drive Viewer";
+}
+function watchScroll(el) {
+  el.addEventListener("scroll", () => el.classList.toggle("scrolled", el.scrollTop > 4), { passive: true });
+}
+function resetTo(el, key) {
+  views.forEach((v) => v.el.remove()); views = [];
+  views.push({ el, key }); stack.append(el); watchScroll(el);
+  stack.scrollTo({ left: 0 });
+  history.replaceState({ depth: 0 }, "");
+  syncChrome();
+}
+
+/* ===================== 最近 ===================== */
+let scope = "Claude";
+let files = FILES.slice();
+let pending = [];
+
+function rowHTML(f) {
+  return `<li><button class="row ${freshness(f.t)}" data-id="${f.id}">
+    <span class="ico">${icon(ICON[f.kind])}</span>
+    <span><span class="name">${esc(f.name)}</span><span class="path">${esc(f.path)}</span></span>
+    <time datetime="${new Date(f.t).toISOString()}">${ago(f.t)}</time>
+  </button></li>`;
+}
+function recentView() {
+  const v = h(`<section class="view" aria-label="最近">
+    <header class="top">
+      <button class="scope" popovertarget="scopeMenu" aria-label="範囲: ${esc(scope)}">${esc(scope)}${icon("i-chev-d")}</button>
+      <span class="title"></span>
+      <button class="icon-btn" data-act="search" aria-label="検索">${icon("i-search")}</button>
+    </header>
+    <div class="pill"><button data-act="newer">${icon("i-arrow-up")}<span></span></button></div>
+    <div class="list"></div>
+  </section>`);
+  renderRecent(v);
+  return v;
+}
+function renderRecent(v) {
+  const list = $(".list", v); list.innerHTML = "";
+  const sorted = files.slice().sort((a, b) => b.t - a.t);
+  let g = null, ul = null;
+  for (const f of sorted) {
+    const gg = groupOf(f.t);
+    if (gg !== g) { g = gg; list.append(h(`<h2 class="group-h">${g}</h2>`)); ul = h(`<ul class="rows"></ul>`); list.append(ul); }
+    ul.append(h(rowHTML(f)));
+  }
+  $(".pill", v).classList.toggle("show", pending.length > 0);
+  $(".pill span", v).textContent = `新着 ${pending.length} 件`;
+}
+
+/* ===================== フォルダ ===================== */
+function folderView(path) {
+  const node = FOLDERS[path] || { dirs: [], files: [] };
+  const title = path ? path.split("/").pop() : "フォルダ";
+  const v = h(`<section class="view" aria-label="${esc(title)}">
+    <header class="top">
+      ${path ? `<button class="icon-btn" data-act="back" aria-label="戻る">${icon("i-chev-l")}</button>` : ""}
+      <span class="title" style="${path ? "" : "padding-left:8px"}">${esc(title)}</span>
+      <button class="icon-btn" aria-label="並べ替え">${icon("i-more")}</button>
+    </header>
+    <div class="list"></div>
+  </section>`);
+  const list = $(".list", v);
+  if (!path) {
+    list.append(h(`<h2 class="group-h">ピン留め</h2>`));
+    const ul = h(`<ul class="rows"></ul>`);
+    node.pins.forEach((p) => ul.append(h(`<li><button class="row" data-dir="${esc(p)}"><span class="ico">${icon("i-pin")}</span><span><span class="name">${esc(p.split("/").pop())}</span><span class="path">${esc(p)}</span></span><span>${icon("i-chev-r")}</span></button></li>`)));
+    list.append(ul);
+    list.append(h(`<h2 class="group-h">マイドライブ</h2>`));
+  }
+  const ul = h(`<ul class="rows"></ul>`);
+  (node.dirs || []).forEach((d) => {
+    const full = path ? path + "/" + d : d;
+    ul.append(h(`<li><button class="row" data-dir="${esc(full)}"><span class="ico">${icon("i-folder")}</span><span><span class="name">${esc(d)}</span></span><span style="color:var(--ink-2)">${icon("i-chev-r")}</span></button></li>`));
+  });
+  (node.files || []).forEach((id) => { const f = [...FILES, ...NEWCOMERS].find((x) => x.id === id); if (f) ul.append(h(rowHTML(f))); });
+  if (!ul.children.length) list.append(h(`<p class="empty">このフォルダは空です</p>`)); else list.append(ul);
+  return v;
+}
+
+/* ===================== ビューア ===================== */
+function viewerView(f) {
+  const textual = ["md", "code", "html"].includes(f.kind);
+  const modes = f.kind === "md" ? ["表示", "生"] : f.kind === "html" ? ["描画", "生"] : null;
+  const v = h(`<section class="view" aria-label="${esc(f.name)}">
+    <header class="top">
+      <button class="icon-btn" data-act="back" aria-label="戻る">${icon("i-chev-l")}</button>
+      <span class="title">${esc(f.name)}</span>
+      ${textual && f.kind !== "html" ? `<button class="icon-btn" data-act="edit" aria-label="編集">${icon("i-pencil")}</button>` : ""}
+      <button class="icon-btn" data-act="more" aria-label="その他">${icon("i-more")}</button>
+    </header>
+    <div class="subbar">
+      <span class="meta ${freshness(f.t) === "fresh" ? "fresh" : ""}">${ago(f.t)}に更新 ・ ${esc(f.size)}</span>
+      ${modes ? `<div class="seg" role="group" aria-label="表示モード">${modes.map((m, i) => `<button aria-pressed="${i === 0}" data-mode="${i}">${m}</button>`).join("")}</div>` : ""}
+    </div>
+    <div class="body"></div>
+  </section>`);
+  v._file = f;
+  renderBody(v, 0);
+  return v;
+}
+function renderBody(v, mode) {
+  const f = v._file, body = $(".body", v);
+  if (f.kind === "md") body.innerHTML = mode === 0 ? `<article class="doc">${md(f.body)}</article>` : `<pre class="raw">${esc(f.body)}</pre>`;
+  else if (f.kind === "code") body.innerHTML = `<pre class="raw">${esc(f.body)}</pre>`;
+  else if (f.kind === "html") {
+    const src = `<!doctype html><meta name=viewport content="width=device-width"><body style="font:15px system-ui;margin:16px;color:#222"><h2 style="margin:0 0 8px">Fuzz Face 改造の比較</h2><p>R3 を 100k → 47k にしたときの倍音。</p><svg viewBox="0 0 300 120" style="width:100%"><polyline fill="none" stroke="#2f6fdf" stroke-width="2" points="0,100 30,40 60,70 90,30 120,80 150,50 180,90 210,60 240,95 270,70 300,100"/><polyline fill="none" stroke="#b8760f" stroke-width="2" points="0,100 30,55 60,60 90,45 120,70 150,62 180,80 210,72 240,88 270,80 300,100"/></svg></body>`;
+    body.innerHTML = mode === 0 ? `<iframe class="frame" sandbox="allow-scripts" title="${esc(f.name)}"></iframe>` : `<pre class="raw">${esc(src)}</pre>`;
+    if (mode === 0) $("iframe", body).srcdoc = src;
+  }
+  else if (f.kind === "video" || f.kind === "audio") {
+    body.innerHTML = `<div class="player">
+      ${f.kind === "video" ? `<video controls playsinline preload="none"></video>` : `<audio controls preload="none"></audio>`}
+      <div class="chips" role="group" aria-label="再生速度">${[0.75, 1, 1.25, 1.5, 1.8, 2].map((r) => `<button aria-pressed="${r === 1}" data-rate="${r}">${r}×</button>`).join("")}</div>
+      <dl class="kv"><dt>長さ</dt><dd>${f.dur}</dd><dt>サイズ</dt><dd>${f.size}</dd><dt>場所</dt><dd>${esc(f.path)}</dd></dl>
+    </div>`;
+  }
+  else if (f.kind === "pdf") {
+    body.innerHTML = `<div class="pdf">${Array.from({ length: f.pages }, (_, i) => `<div class="page" data-p="${i + 1}"><b>PCM1808</b><i style="width:70%"></i><i></i><i style="width:85%"></i><i></i><i style="width:60%"></i></div>`).join("")}</div><div class="pageno">1 / ${f.pages}</div>`;
+    const io = new IntersectionObserver((es) => es.forEach((e) => e.isIntersecting && ($(".pageno", body).textContent = `${e.target.dataset.p} / ${f.pages}`)), { root: v, threshold: 0.5 });
+    body.querySelectorAll(".page").forEach((p) => io.observe(p));
+  }
+  else if (f.kind === "image") body.innerHTML = `<div style="padding:0 var(--pad)"><div style="aspect-ratio:4/3;border-radius:8px;background:var(--paper-2);display:grid;place-items:center;color:var(--ink-2)">${icon("i-image")}</div></div>`;
+}
+function enterEdit(v) {
+  const f = v._file;
+  $(".subbar", v).hidden = true;
+  $('[data-act="edit"]', v).hidden = true;
+  const body = $(".body", v);
+  body.innerHTML = `<textarea class="edit" spellcheck="false" aria-label="${esc(f.name)} を編集"></textarea>
+    <div class="editbar"><button class="btn ghost" data-act="discard">破棄</button><button class="btn solid" data-act="save">保存</button></div>`;
+  const ta = $("textarea", body); ta.value = f.body; ta.focus({ preventScroll: true });
+}
+function leaveEdit(v) { $(".subbar", v).hidden = false; $('[data-act="edit"]', v).hidden = false; renderBody(v, 0); $$seg(v, 0); }
+const $$seg = (v, m) => v.querySelectorAll(".seg button").forEach((b) => b.setAttribute("aria-pressed", b.dataset.mode == m));
+
+/* ===================== トースト ===================== */
+let toastTimer;
+function toast(text, act, fn) {
+  $("#toastText").textContent = text;
+  const b = $("#toastAct"); b.textContent = act || ""; b.hidden = !act; b.onclick = () => { hideToast(); fn && fn(); };
+  $("#toast").classList.add("show");
+  clearTimeout(toastTimer); toastTimer = setTimeout(hideToast, act ? 8000 : 2500);
+}
+const hideToast = () => $("#toast").classList.remove("show");
+
+/* ===================== 操作 ===================== */
+document.addEventListener("click", (e) => {
+  const t = e.target.closest("button"); if (!t) return;
+  const v = t.closest(".view");
+  if (t.dataset.tab) {
+    tab = t.dataset.tab;
+    document.querySelectorAll(".tabs button").forEach((b) => b.setAttribute("aria-current", b === t ? "page" : "false"));
+    resetTo(tab === "recent" ? recentView() : folderView(""), tab === "recent" ? "最近" : "フォルダ");
+    return;
+  }
+  if (t.dataset.id) { const f = [...FILES, ...NEWCOMERS].find((x) => x.id === t.dataset.id); push(viewerView(f), f.name); if (f.id === "plan") armUpdate(); return; }
+  if (t.dataset.dir) { push(folderView(t.dataset.dir), t.dataset.dir); return; }
+  if (t.dataset.mode) { $$seg(v, t.dataset.mode); renderBody(v, Number(t.dataset.mode)); return; }
+  if (t.dataset.rate) { t.parentElement.querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", b === t)); const m = $("video,audio", v); if (m) m.playbackRate = Number(t.dataset.rate); return; }
+  if (t.dataset.c) { $("#conflict").close(); if (t.dataset.c === "reload") { leaveEdit(views.at(-1).el); toast("最新を読み込みました"); } else if (t.dataset.c === "overwrite") { leaveEdit(views.at(-1).el); toast("保存しました"); } return; }
+  switch (t.dataset.act) {
+    case "back": back(); break;
+    case "edit": enterEdit(v); break;
+    case "discard": leaveEdit(v); break;
+    case "save": $("#conflict").showModal(); break;
+    case "newer": files = [...pending.map((f) => ({ ...f, t: Date.now() - 30e3 })), ...files]; pending = []; renderRecent(v); v.scrollTo({ top: 0 }); break;
+    case "search": {
+      if ($(".search", v)) break;
+      const s = h(`<div class="search"><input type="search" placeholder="ファイル名" enterkeyhint="search" aria-label="ファイル名で検索"></div>`);
+      $(".top", v).after(s); $("input", s).focus();
+      $("input", s).addEventListener("input", (ev) => { const q = ev.target.value.toLowerCase(); v.querySelectorAll(".row").forEach((r) => (r.closest("li").hidden = q && !$(".name", r).textContent.toLowerCase().includes(q))); });
+      break;
+    }
+    case "more": {
+      const f = v._file, m = $("#moreMenu");
+      m.innerHTML = `<div class="path">${esc("マイドライブ/Claude/" + f.path + "/" + f.name)}</div><hr>
+        <button data-act="copy">${icon("i-link")}リンクをコピー</button>
+        <button data-act="drive">${icon("i-external")}Driveで開く</button>`;
+      m.showPopover(); break;
+    }
+    case "copy": $("#moreMenu").hidePopover(); toast("リンクをコピーしました"); break;
+    case "drive": $("#moreMenu").hidePopover(); toast("モックなので開きません"); break;
+    case "scope": break;
+  }
+});
+
+// 範囲メニュー
+function buildScope() {
+  const m = $("#scopeMenu");
+  const opts = [["Claude", "i-pin"], ["Claude/dev", "i-pin"], ["Claude/research", "i-pin"], ["マイドライブ全体", "i-hard-drive"]];
+  m.innerHTML = opts.map(([o, ic]) => `<button data-scope="${esc(o)}">${icon(ic)}${esc(o)}${o === scope ? `<span class="check">${icon("i-check")}</span>` : ""}</button>`).join("");
+}
+$("#scopeMenu").addEventListener("beforetoggle", buildScope);
+$("#scopeMenu").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-scope]"); if (!b) return;
+  scope = b.dataset.scope; $("#scopeMenu").hidePopover();
+  resetTo(recentView(), "最近");
+});
+
+// デモ：数秒後に新着が届く
+setTimeout(() => { pending = NEWCOMERS.slice(); const v = views[0]; if (tab === "recent" && v) renderRecent(v.el); }, 4000);
+// デモ：PLAN.md を開いて数秒後に「更新されました」
+let armed = false;
+function armUpdate() {
+  if (armed) return; armed = true;
+  setTimeout(() => {
+    const top = views.at(-1);
+    if (!top || !top.el._file || top.el._file.id !== "plan" || $("textarea", top.el)) { armed = false; return; }
+    toast("PLAN.md が更新されました", "再読込", () => {
+      const f = top.el._file; f.t = Date.now(); f.body += "\n## 追記\n\nエージェントが書き足した段落。\n";
+      $(".meta", top.el).textContent = `今に更新 ・ ${f.size}`; $(".meta", top.el).classList.add("fresh");
+      renderBody(top.el, 0); $$seg(top.el, 0);
+    });
+  }, 5000);
+}
+// 相対時刻を 30 秒ごとに更新
+setInterval(() => document.querySelectorAll(".row time").forEach((t) => { const ts = Date.parse(t.dateTime); t.textContent = ago(ts); t.closest(".row").classList.remove("fresh", "warm"); const fr = freshness(ts); if (fr) t.closest(".row").classList.add(fr); }), 30e3);
+
+resetTo(recentView(), "最近");
+</script>
+</body>
+</html>
