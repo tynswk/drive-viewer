@@ -56,7 +56,8 @@ body
 ├─ section.sheet.media(.mini) … メディア（全画面 ⇄ ミニバー）。z=20
 ├─ [popover] 範囲メニュー・その他メニュー
 ├─ .toast          … 1つだけ
-└─ dialog#conflict … 保存時の競合
+├─ dialog#conflict … 保存時の衝突
+└─ dialog#discard  … 変更を破棄して抜けるときの確認（→ ADR-0013）
 ```
 
 ### 5.1 シートの開閉
