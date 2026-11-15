@@ -95,3 +95,13 @@ iPhone PWA (GitHub Pages, 静的)
   - JavaScript生成元：`https://tynswk.github.io`、`http://localhost:5173`
   - リダイレクトURI：`https://tynswk.github.io/drive-viewer/`、`http://localhost:5173/`（Pagesで認可コードを受け取り、Workerに渡して交換する）
   - client_secret：作成時のダイアログでしか表示されないので、取得していない。Workerを設定するときにコンソールの「シークレットを追加」で新しく発行し、`wrangler secret put` で直接入れる（チャットやファイルには残さない）
+
+## 8. P0の結果（2026-11-15）
+- 公開URL：https://tynswk.github.io/drive-viewer/ （リポジトリ tynswk/drive-viewer、`docs/` をPagesで配信）
+- Worker：https://drive-viewer-auth.tynswk.workers.dev （`/exchange` と `/refresh`。client_secretはWorkerのsecretにだけある）
+- PC版Chromeで確認済み：ログイン（PKCE＋Workerでの交換）、refresh_tokenの保存、最近の一覧、SW経由の音声再生・シーク（localhost）。
+- 分かったこと
+  - **Googleの `alt=media` はCORSで `Content-Range` を公開しない**。SWでは `files.get?fields=size` でサイズを取って、Content-Rangeを自前で組み立てる。
+  - **Drive上のgitリポジトリの `.git` 内のファイルが「最近」の一覧を埋める**。MVPでは `.git`・`node_modules`・`__pycache__` 配下を除外する必要がある（親フォルダ名をキャッシュして判定）。
+  - ローカルの `python -m http.server` は、Windowsのレジストリの影響で `.js` を `text/plain` で返す → `serve.py` を使う。
+- 残り：iPhone実機で、①ホーム画面アプリからのログイン、②動画のSW経由再生・シーク・PiP。
