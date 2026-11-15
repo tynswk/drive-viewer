@@ -56,7 +56,7 @@ body
 ├─ section.sheet.media(.mini) … メディア（全画面 ⇄ ミニバー）。z=20
 ├─ [popover] 範囲メニュー・その他メニュー
 ├─ .toast          … 1つだけ
-├─ dialog#conflict … 保存時の衝突
+├─ dialog#conflict … 保存時の衝突。全画面の差分とマージ（→ ADR-0014）
 └─ dialog#discard  … 変更を破棄して抜けるときの確認（→ ADR-0013）
 ```
 
@@ -99,3 +99,11 @@ body
 | モック | 画面設計（docs/mock/） | 第2版（ツリー・起点から覆うシート・ミニバー） |
 | P1 | 本実装：最近／ツリー／シート／md・テキスト・HTML・PDF・画像・メディア／編集と競合検知／除外 | 未着手 |
 | P2 | ピン留めの編集、検索、パスでのディープリンク、更新の追従、オフラインキャッシュ | 未着手 |
+
+## 8. 衝突時のマージ（→ ADR-0014）
+
+- 編集に入るとき、本文（_editBase）とDriveの版（_editV）を覚える。保存時に版が変わっていれば、最新の本文（theirs）を取り直して `diff3(base, mine, theirs)` にかける。
+- `lcsMatch(a, b)` は行単位のLCSで、a の各行に対応する b の添字を返す。`diff3` は、base–mine と base–theirs の両方で対応する base の行を錨にして、間の区間を `same / theirs / mine / both / conflict` に分ける。
+- 画面は塊の並びをそのまま描く。conflict の塊だけ `pick`（theirs / mine / both）を持ち、既定は both。`mergedText()` が塊を連結して保存用の本文を作る。
+- 色：相手の変更＝`--fresh`（琥珀）の帯、自分の変更＝`--mine`（青）の帯、削除＝打ち消し線。
+

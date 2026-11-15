@@ -26,12 +26,14 @@
   --t-fast: 110ms;
   --out: cubic-bezier(.22, 1, .36, 1);      /* イーズアウト */
   --shadow: 0 10px 30px rgba(0,0,0,.18), 0 0 0 1px var(--line);
+  --mine: #2f6fdf; --mine-bg: #eaf1fd; --theirs-bg: #fbf1df;   /* 差分の色：相手＝琥珀、自分＝青 */
 }
 @media (prefers-color-scheme: dark) {
   :root {
     --paper: #000000; --paper-2: #16171a; --ink: #ececee; --ink-2: #93979f;
     --line: #232428; --fresh: #e3a23f; --focus: #7aa7ff;
     --shadow: 0 10px 30px rgba(0,0,0,.8), 0 0 0 1px #2c2d32;
+    --mine: #7aa7ff; --mine-bg: #0f1a2e; --theirs-bg: #2a1f0c;
   }
 }
 @media (prefers-reduced-motion: reduce) { :root { --t: 0ms; --t-fast: 0ms; } }
@@ -248,6 +250,32 @@ dialog .acts { display: grid; gap: 8px; }
 
 .search { padding: 0 var(--pad) 8px; }
 .search input { width: 100%; min-height: var(--target); border: 0; border-radius: 10px; background: var(--paper-2); color: var(--ink); padding: 0 12px; font: inherit; }
+/* ===== 衝突：差分とマージ（全画面） ===== */
+dialog.merge { max-width: none; width: 100%; height: 100%; max-height: none; margin: 0; padding: 0; border-radius: 0; box-shadow: none; display: none; flex-direction: column; }
+dialog.merge[open] { display: flex; }
+dialog.merge::backdrop { background: transparent; }
+.merge .top { position: static; padding-right: max(var(--pad), env(safe-area-inset-right)); }
+.merge .stats { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; padding: 2px var(--pad) 10px; font-size: .8125rem; color: var(--ink-2); }
+.merge .stats b { font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
+.merge .stats .sp { flex: 1; }
+.merge .lines { flex: 1; overflow-y: auto; padding: 0 0 16px; font: .8125rem/1.6 ui-monospace, "SF Mono", Menlo, monospace; }
+.ln { padding: 0 var(--pad) 0 calc(var(--pad) - 3px); border-left: 3px solid transparent; white-space: pre-wrap; word-break: break-word; min-height: 1.6em; }
+.ln.ctx { color: var(--ink-2); }
+.ln.del { color: var(--ink-2); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--ink-2) 60%, transparent); }
+.ln.theirs { border-left-color: var(--fresh); background: var(--theirs-bg); }
+.ln.mine { border-left-color: var(--mine); background: var(--mine-bg); }
+.gap { padding: 2px var(--pad); color: var(--ink-2); font: .75rem/1.6 -apple-system, system-ui, sans-serif; }
+.tag { display: block; padding: 8px var(--pad) 2px; font: 600 .75rem/1.4 -apple-system, system-ui, sans-serif; }
+.tag.theirs { color: var(--fresh); } .tag.mine { color: var(--mine); }
+.hunk { margin: 8px 8px; border-radius: 10px; box-shadow: 0 0 0 1px var(--line); overflow: hidden; }
+.hunk .head { display: flex; align-items: center; gap: 8px; padding: 8px 8px 8px 12px; background: var(--paper-2); font: 600 .8125rem/1.4 -apple-system, system-ui, sans-serif; }
+.hunk .head span { flex: 1; }
+.hunk .seg button { min-height: 32px; }
+.hunk .side { opacity: .45; transition: opacity var(--t-fast) var(--out); }
+.hunk .side.on { opacity: 1; }
+.merge .acts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 10px var(--pad) calc(10px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); }
+.merge .acts .solid { grid-column: 1 / -1; }
+.merge .acts .btn.line { box-shadow: 0 0 0 1px var(--line); font-weight: 500; }
 </style>
 </head>
 <body>
@@ -262,13 +290,18 @@ dialog .acts { display: grid; gap: 8px; }
 <div popover id="scopeMenu" class="menu"></div>
 <div popover id="moreMenu" class="menu"></div>
 <div class="toast" id="toast" role="status"><span id="toastText"></span><button id="toastAct"></button></div>
-<dialog id="conflict">
-  <h3>エージェントが先に更新しています</h3>
-  <p>開いてから 2 分の間に、このファイルは別の場所で書き換えられました。</p>
+<dialog id="conflict" class="merge" aria-labelledby="mergeTitle">
+  <header class="top">
+    <button class="icon-btn" data-c="cancel" aria-label="編集に戻る"><svg class="i" aria-hidden="true"><use href="#i-chev-d"/></svg></button>
+    <span class="title" id="mergeTitle"></span>
+    <div class="seg mv" role="group" aria-label="表示する範囲"></div>
+  </header>
+  <div class="stats"></div>
+  <div class="lines"></div>
   <div class="acts">
-    <button class="btn solid" data-c="reload">最新を読み込む（編集を破棄）</button>
-    <button class="btn" style="box-shadow:0 0 0 1px var(--line)" data-c="overwrite">自分の編集で上書き</button>
-    <button class="btn ghost" data-c="cancel">戻る</button>
+    <button class="btn line" data-c="reload">最新を読み込む</button>
+    <button class="btn line" data-c="overwrite">自分の版で上書き</button>
+    <button class="btn solid" data-c="merge">マージして保存</button>
   </div>
 </dialog>
 
@@ -602,7 +635,7 @@ const editText = (s) => $("textarea.edit", s)?.value ?? "";
 const isDirty = (s) => !!s._editing && editText(s) !== s._editBase;
 function saveEdit(s) {
   const f = s._file;
-  if (f.rv !== s._editV) { $("#conflict").showModal(); return; }   // 開いた後に別の場所で更新された
+  if (f.rv !== s._editV) { openMerge(s); return; }   // 開いた後に別の場所で更新された
   if (isDirty(s)) { f.body = editText(s); f.rv++; f.t = Date.now(); toast("保存しました"); }
   leaveEdit(s);
 }
@@ -612,6 +645,81 @@ function cancelEdit(s, then) {
   if (!isDirty(s)) { leaveEdit(s); then && then(); return; }
   afterDiscard = then || null;
   $("#discard").showModal();
+}
+
+/* ===================== 衝突：3方向マージ ===================== */
+// 行単位の最長共通部分列。a[i] と対応する b の添字を返す（無ければ -1）
+function lcsMatch(a, b) {
+  const n = a.length, m = b.length, w = m + 1;
+  const dp = new Uint32Array((n + 1) * w);
+  for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--)
+    dp[i * w + j] = a[i] === b[j] ? dp[(i + 1) * w + j + 1] + 1 : Math.max(dp[(i + 1) * w + j], dp[i * w + j + 1]);
+  const match = new Array(n).fill(-1);
+  for (let i = 0, j = 0; i < n && j < m;) {
+    if (a[i] === b[j]) { match[i] = j; i++; j++; }
+    else if (dp[(i + 1) * w + j] >= dp[i * w + j + 1]) i++; else j++;
+  }
+  return match;
+}
+const same = (x, y) => x.length === y.length && x.every((v, i) => v === y[i]);
+// base を基準に mine と theirs を突き合わせ、塊に分ける
+function diff3(base, mine, theirs) {
+  const mb = lcsMatch(base, mine), tb = lcsMatch(base, theirs), out = [];
+  let i = 0, j = 0, k = 0;
+  while (i < base.length || j < mine.length || k < theirs.length) {
+    let a = i;
+    while (a < base.length && !(mb[a] >= j && tb[a] >= k)) a++;
+    const je = a < base.length ? mb[a] : mine.length, ke = a < base.length ? tb[a] : theirs.length;
+    if (a === i && je === j && ke === k) { out.push({ t: "same", lines: [base[i]] }); i++; j++; k++; continue; }
+    const B = base.slice(i, a), M = mine.slice(j, je), Th = theirs.slice(k, ke);
+    if (same(M, B)) out.push({ t: "theirs", base: B, lines: Th });
+    else if (same(Th, B)) out.push({ t: "mine", base: B, lines: M });
+    else if (same(M, Th)) out.push({ t: "both", base: B, lines: M });
+    else out.push({ t: "conflict", base: B, mine: M, theirs: Th, pick: "both" });
+    i = a; j = je; k = ke;
+  }
+  return out;
+}
+let mergeState = null;
+function openMerge(s) {
+  const f = s._file;
+  const chunks = diff3(s._editBase.split("\n"), editText(s).split("\n"), (f.remote ?? f.body).split("\n"));
+  mergeState = { s, chunks, onlyChanges: true };
+  renderMerge();
+  $("#conflict").showModal();
+}
+function mergedText() {
+  return mergeState.chunks.flatMap((c) =>
+    c.t === "same" ? c.lines : c.t !== "conflict" ? c.lines :
+    c.pick === "mine" ? c.mine : c.pick === "theirs" ? c.theirs : [...c.theirs, ...c.mine]).join("\n");
+}
+function renderMerge() {
+  const { chunks, onlyChanges } = mergeState, d = $("#conflict");
+  const n = (t) => chunks.filter((c) => c.t === t).length;
+  $("#mergeTitle").textContent = n("conflict") ? `衝突 ${n("conflict")}か所` : "別の場所で更新あり";
+  $(".seg.mv", d).innerHTML = `<button data-mv="1" aria-pressed="${onlyChanges}">変更箇所</button><button data-mv="0" aria-pressed="${!onlyChanges}">全文</button>`;
+  $(".stats", d).innerHTML = `<span>相手の変更 <b>${n("theirs") + n("both")}</b></span><span>自分の変更 <b>${n("mine")}</b></span><span>衝突 <b>${n("conflict")}</b></span>`;
+  const L = (cls, text) => `<div class="ln ${cls}">${esc(text) || " "}</div>`;
+  let html = "";
+  chunks.forEach((c, idx) => {
+    if (c.t === "same") {
+      const near = chunks.slice(Math.max(0, idx - 2), idx + 3).some((x) => x.t !== "same");
+      if (!onlyChanges || near) html += L("ctx", c.lines[0]);
+      else if (!html.endsWith("</div>\n<!--gap-->")) html += `<div class="gap">…</div>\n<!--gap-->`;
+      return;
+    }
+    if (c.t === "conflict") {
+      const on = (k) => (c.pick === k || c.pick === "both" ? "on" : "");
+      html += `<div class="hunk"><div class="head"><span>この箇所を両方が変えました</span>
+        <div class="seg" role="group" aria-label="どちらを残すか">${[["theirs", "相手"], ["mine", "自分"], ["both", "両方"]].map(([k, l]) => `<button data-pick="${idx}:${k}" aria-pressed="${c.pick === k}">${l}</button>`).join("")}</div></div>
+        <div class="side ${on("theirs")}"><span class="tag theirs">相手</span>${c.theirs.map((t) => L("theirs", t)).join("") || L("del", "（削除）")}</div>
+        <div class="side ${on("mine")}"><span class="tag mine">自分</span>${c.mine.map((t) => L("mine", t)).join("") || L("del", "（削除）")}</div></div>`;
+      return;
+    }
+    const who = c.t === "mine" ? "mine" : "theirs";
+    html += c.base.map((t) => L("del", t)).join("") + c.lines.map((t) => L(who, t)).join("");
+  });
+  $(".lines", d).innerHTML = html.replace(/\n<!--gap-->/g, "");
 }
 
 /* ===================== メディア：全画面 ⇄ 下部のミニバー ===================== */
@@ -750,12 +858,20 @@ document.addEventListener("click", (e) => {
   if ("toggle" in t.dataset) { expand(t.closest(".node")); return; }
   if (t.dataset.mode) { setSeg(s, t.dataset.mode); renderBody(s, Number(t.dataset.mode)); return; }
   if (t.dataset.rate) { t.parentElement.querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", b === t)); if (media.el) media.el.playbackRate = Number(t.dataset.rate); return; }
+  if (t.dataset.mv) { mergeState.onlyChanges = t.dataset.mv === "1"; renderMerge(); return; }
+  if (t.dataset.pick) { const [ix, k] = t.dataset.pick.split(":"); mergeState.chunks[ix].pick = k; renderMerge(); return; }
   if (t.dataset.c) {
+    const ds = mergeState && mergeState.s;
     $("#conflict").close();
-    const ds = docSheet; if (!ds || t.dataset.c === "cancel") return;
+    if (!ds || t.dataset.c === "cancel") return;
     const f = ds._file;
     if (t.dataset.c === "reload") { f.body = f.remote ?? f.body; leaveEdit(ds); toast("最新を読み込みました"); }
-    else { f.body = editText(ds); f.rv++; f.t = Date.now(); leaveEdit(ds); toast("上書きして保存しました"); }
+    else {
+      f.body = t.dataset.c === "merge" ? mergedText() : editText(ds);
+      f.rv++; f.t = Date.now(); leaveEdit(ds);
+      toast(t.dataset.c === "merge" ? "マージして保存しました" : "上書きして保存しました");
+    }
+    mergeState = null;
     return;
   }
   if (t.dataset.d) {
@@ -813,7 +929,7 @@ function armUpdate(s) {
   setTimeout(() => {
     if (docSheet !== s) { armed = false; return; }
     const f = s._file;
-    f.rv++; f.remote = f.body + "\n## 追記\n\nエージェントが書き足した段落。\n";
+    f.rv++; f.remote = f.body.replace("保存前に `version` を見て、開いた後に書き換えられていたら上書きしない。", "保存前に `version` を比べ、編集を始めた後に書き換えられていたら差分を見せてマージさせる。") + "\n## 追記\n\nエージェントが書き足した段落。\n";
     if (s._editing) { toast("PLAN.md が別の場所で更新されました"); return; }
     toast("PLAN.md が更新されました", "再読込", () => {
       f.body = f.remote; f.t = Date.now();
