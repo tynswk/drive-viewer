@@ -1,7 +1,7 @@
 // 1) stream/{fileId} を Drive の alt=media に中継する（Content-Range を組み立て直す。ADR-0004）
-// 2) アプリ本体と vendor をキャッシュする（stale-while-revalidate。ADR-0015）
+// 2) 画面と app/ はネットワーク優先（つながらなければキャッシュ）、vendor は stale-while-revalidate（ADR-0015）
 // VERSION を上げると、新しい SW が全ファイルを取り直して古いキャッシュを捨てる
-const VERSION = "p1-1";
+const VERSION = "p1-2";
 const CACHE = "app-" + VERSION;
 const PRECACHE = [
   "./", "manifest.webmanifest", "icon-180.png", "icon-192.png", "icon-512.png",
@@ -34,6 +34,20 @@ async function swr(key, req) {
   const net = fetch(req).then((r) => { if (r.ok) c.put(key, r.clone()); return r; });
   if (hit) { net.catch(() => {}); return hit; }
   return net;
+}
+
+// ネットワークを先に見る。失敗・オフラインのときだけキャッシュ（push がすぐ反映されるように）
+async function netFirst(key, req) {
+  const c = await caches.open(CACHE);
+  try {
+    const r = await fetch(req, { cache: "no-cache" });
+    if (r.ok) c.put(key, r.clone());
+    return r;
+  } catch {
+    const hit = await c.match(key);
+    if (hit) return hit;
+    throw new Error("offline");
+  }
 }
 
 const sizes = new Map(); // fileId -> {size, mimeType}
@@ -91,10 +105,9 @@ self.addEventListener("fetch", (e) => {
   if (req.method !== "GET" || url.origin !== location.origin) return;
   // 画面の遷移は、クエリ（?id= や ?code=）が付いていても index.html を返す
   if (req.mode === "navigate" && url.href.startsWith(ROOT) && !url.pathname.includes("/mock/")) {
-    return e.respondWith(swr(ROOT, ROOT));
+    return e.respondWith(netFirst(ROOT, ROOT));
   }
   // vendor（pdf.js の cmap・フォント・wasm を含む）と本体
-  if (url.href.startsWith(ROOT + "vendor/") || PRECACHE.some((u) => new URL(u, ROOT).href === url.href)) {
-    e.respondWith(swr(url.href, req));
-  }
+  if (url.href.startsWith(ROOT + "vendor/")) return e.respondWith(swr(url.href, req));
+  if (PRECACHE.some((u) => new URL(u, ROOT).href === url.href)) e.respondWith(netFirst(url.href, req));
 });
