@@ -1,6 +1,6 @@
 # drive-viewer 設計書
 
-最終更新：2026-11-15　／　関連：[SPEC.md](SPEC.md)・[adr/](adr/)
+最終更新：2026-11-15（P1 実装）　／　関連：[SPEC.md](SPEC.md)・[adr/](adr/)
 
 ## 1. 全体構成
 
@@ -17,7 +17,9 @@ iPhone PWA（GitHub Pages: tynswk.github.io/drive-viewer/, リポジトリの do
 
 | 置き場所 | 中身 |
 |---|---|
-| `docs/` | 公開するアプリ本体（Pages の配信元） |
+| `docs/` | 公開するアプリ本体（Pages の配信元）。`index.html`（殻）・`sw.js`・`manifest.webmanifest` |
+| `docs/app/` | アプリのコード（素のES Modules）。`main.js`（起動・操作の振り分け・払う操作・戻る）、`auth.js`（ログイン・トークン）、`drive.js`（Drive API・祖先フォルダのキャッシュ・最近の取得）、`pages.js`（最近・フォルダ）、`viewer.js`（シート・編集・マージ・更新の追従）、`media.js`（ミニバー）、`diff.js`、`kind.js`、`ui.js`、`app.css` |
+| `docs/vendor/` | 版を固定した外部ライブラリ（marked 18.2.0・DOMPurify 3.4.18・pdfjs-dist 6.5.438 とその cmaps・standard_fonts・wasm・icc） |
 | `docs/mock/` | 画面設計のモック（ダミーデータ） |
 | `worker/` | トークン中継の Worker（wrangler） |
 | `design/` | 仕様書・設計書・ADR（公開しない側） |
@@ -43,8 +45,14 @@ iPhone PWA（GitHub Pages: tynswk.github.io/drive-viewer/, リポジトリの do
 
 - `<video>`・`<audio>` の src は `stream/{fileId}`。Service Worker がこれを受けて、`files.get?alt=media` に Range 付きで中継する。
 - Google の応答は CORS の制限で `Content-Range` をページ側に見せない。そこで `files.get?fields=size,mimeType` でサイズを取り、Content-Range・Content-Length・Accept-Ranges を SW で組み立てて返す。
-- SW がトークンを読むために、ページは access_token を Cache API（`auth` キャッシュの `__token`）にも書いておく。
+- SW がトークンを読むために、ページは access_token を Cache API（`auth` キャッシュの `__token`）にも書いておく。メディアの再生中は4分ごとに、期限まで6分を切っていれば取り直して書き直す。
 - 速度は `playbackRate` で変える。PiP と全画面は OS 標準のものを使う。ロック画面には Media Session API でタイトルを出す。
+
+## 4.1 アプリのキャッシュ（→ ADR-0015）
+
+- `sw.js` の `VERSION` をキャッシュ名（`app-<VERSION>`）に入れる。install で本体と vendor の主要ファイルを取り直して入れ、activate で古い `app-*` を捨てる。
+- 本体と vendor は stale-while-revalidate（キャッシュを返しつつ裏で取り直す）。ページ遷移は `?id=` などのクエリが付いていても、ルートの index.html をキーに返す。vendor の cmaps・フォント・wasm は初めて使ったときにキャッシュへ入る。
+- 画面を直したら `VERSION` を上げる（上げなくても次回起動で追いつく）。
 
 ## 5. 画面構造（→ ADR-0008, ADR-0009, ADR-0010）
 
@@ -97,7 +105,7 @@ body
 |---|---|---|
 | P0 | ログイン・最近の一覧・SW経由のストリーミング | 完了（2026-11-15、iPhone実機で確認済み） |
 | モック | 画面設計（docs/mock/） | 第2版（ツリー・起点から覆うシート・ミニバー） |
-| P1 | 本実装：最近／ツリー／シート／md・テキスト・HTML・PDF・画像・メディア／編集と競合検知／除外 | 未着手 |
+| P1 | 本実装：最近／ツリー／シート／md・テキスト・HTML・PDF・画像・メディア／編集と競合検知／除外 | 実装済み・実機確認待ち |
 | P2 | ピン留めの編集、検索、パスでのディープリンク、更新の追従、オフラインキャッシュ | 未着手 |
 
 ## 8. 衝突時のマージ（→ ADR-0014）

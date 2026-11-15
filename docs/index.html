@@ -3,187 +3,81 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#16181c">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icon-180.png">
+<link rel="stylesheet" href="app/app.css">
 <title>Drive Viewer</title>
-<style>
-  :root { --bg:#16181c; --fg:#e8e8ea; --sub:#8b8f98; --line:#2a2d33; --acc:#5b9cff; }
-  * { box-sizing: border-box; }
-  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 -apple-system, system-ui, sans-serif;
-         padding: env(safe-area-inset-top) 16px env(safe-area-inset-bottom); }
-  header { display:flex; align-items:center; gap:8px; padding:12px 0; }
-  header h1 { font-size:17px; margin:0; flex:1; }
-  button, select { background:#22252b; color:var(--fg); border:1px solid var(--line); border-radius:8px; padding:8px 12px; font:inherit; }
-  button:active { background:#2c3038; }
-  ul { list-style:none; margin:0; padding:0; }
-  li { padding:10px 0; border-bottom:1px solid var(--line); cursor:pointer; }
-  li .n { word-break:break-all; }
-  li .m { color:var(--sub); font-size:12px; }
-  #log { color:var(--sub); font-size:12px; white-space:pre-wrap; margin-top:12px; }
-  #player { margin:12px 0; }
-  video, audio { width:100%; background:#000; border-radius:8px; }
-  .row { display:flex; gap:8px; align-items:center; margin-top:8px; }
-  .tabs { display:flex; gap:8px; margin-bottom:8px; }
-  .tabs button[aria-pressed="true"] { border-color:var(--acc); color:var(--acc); }
-</style>
 </head>
 <body>
-<header>
-  <h1>Drive Viewer <span style="color:var(--sub);font-weight:normal;font-size:12px">P0</span></h1>
-  <button id="login" hidden>ログイン</button>
-  <button id="logout" hidden>ログアウト</button>
-</header>
 
-<div id="main" hidden>
-  <div class="tabs">
-    <button data-q="recent" aria-pressed="true">最近</button>
-    <button data-q="media">動画・音声</button>
+<main id="main"></main>
+
+<nav class="tabs" id="tabs" aria-label="表示の切り替え" hidden>
+  <button data-tab="recent" aria-current="page"><svg class="i"><use href="#i-clock"/></svg>最近</button>
+  <button data-tab="folders" aria-current="false"><svg class="i"><use href="#i-folder"/></svg>フォルダ</button>
+</nav>
+
+<div popover id="scopeMenu" class="menu"></div>
+<div popover id="moreMenu" class="menu"></div>
+<div class="toast" id="toast" role="status"><span id="toastText"></span><button id="toastAct"></button></div>
+<dialog id="conflict" class="merge" aria-labelledby="mergeTitle">
+  <header class="top">
+    <button class="icon-btn" data-c="cancel" aria-label="編集に戻る"><svg class="i" aria-hidden="true"><use href="#i-chev-d"/></svg></button>
+    <span class="title" id="mergeTitle"></span>
+    <div class="seg mv" role="group" aria-label="表示する範囲"></div>
+  </header>
+  <div class="stats"></div>
+  <div class="lines"></div>
+  <div class="acts">
+    <button class="btn line" data-c="reload">最新を読み込む</button>
+    <button class="btn line" data-c="overwrite">自分の版で上書き</button>
+    <button class="btn solid" data-c="merge">マージして保存</button>
   </div>
-  <div id="player"></div>
-  <ul id="list"></ul>
-</div>
-<div id="log"></div>
+</dialog>
 
-<script>
-const CLIENT_ID = "591925567747-l2hgpfep4qvme7c5tdhh9mnal8nub2h1.apps.googleusercontent.com";
-const WORKER = "https://drive-viewer-auth.tynswk.workers.dev";
-const REDIRECT = location.origin + location.pathname.replace(/index\.html$/, "");
-const SCOPE = "https://www.googleapis.com/auth/drive";
-const $ = (s) => document.querySelector(s);
-const log = (m) => { $("#log").textContent += m + "\n"; };
+<dialog id="discard">
+  <h3>編集を破棄しますか</h3>
+  <p>保存していない変更は消えます。</p>
+  <div class="acts">
+    <button class="btn solid" data-d="discard">破棄する</button>
+    <button class="btn ghost" data-d="keep">編集に戻る</button>
+  </div>
+</dialog>
 
-const store = {
-  get(k) { try { return localStorage.getItem(k); } catch { return null; } },
-  set(k, v) { try { localStorage.setItem(k, v); } catch {} },
-  del(k) { try { localStorage.removeItem(k); } catch {} },
-};
+<!-- lucide のアイコン（ISC）。必要な分だけ inline -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></symbol>
+  <symbol id="i-folder-open" viewBox="0 0 24 24"><path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/></symbol>
+  <symbol id="i-file-text" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></symbol>
+  <symbol id="i-file-code" viewBox="0 0 24 24"><path d="M10 12.5 8 15l2 2.5"/><path d="m14 12.5 2 2.5-2 2.5"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z"/></symbol>
+  <symbol id="i-film" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M7 3v18"/><path d="M3 7.5h4"/><path d="M3 12h18"/><path d="M3 16.5h4"/><path d="M17 3v18"/><path d="M17 7.5h4"/><path d="M17 16.5h4"/></symbol>
+  <symbol id="i-music" viewBox="0 0 24 24"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></symbol>
+  <symbol id="i-image" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></symbol>
+  <symbol id="i-pdf" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M8 13h2"/><path d="M8 17h2"/><path d="M14 13h2"/><path d="M14 17h2"/></symbol>
+  <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+  <symbol id="i-chev-d" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="i-chev-r" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+  <symbol id="i-more" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></symbol>
+  <symbol id="i-pencil" viewBox="0 0 24 24"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/></symbol>
+  <symbol id="i-arrow-up" viewBox="0 0 24 24"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+  <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></symbol>
+  <symbol id="i-hard-drive" viewBox="0 0 24 24"><path d="M22 12H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/><path d="M6 16h.01"/><path d="M10 16h.01"/></symbol>
+  <symbol id="i-external" viewBox="0 0 24 24"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h3"/></symbol>
+  <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><polygon points="6 3 20 12 6 21 6 3"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 24 24"><rect x="14" y="4" width="4" height="16" rx="1"/><rect x="6" y="4" width="4" height="16" rx="1"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/></symbol>
+  <symbol id="i-log-out" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></symbol>
+</svg>
 
-function b64url(buf) {
-  return btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-async function login() {
-  const verifier = b64url(crypto.getRandomValues(new Uint8Array(32)));
-  const challenge = b64url(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier)));
-  const state = b64url(crypto.getRandomValues(new Uint8Array(16)));
-  store.set("pkce_verifier", verifier);
-  store.set("pkce_state", state);
-  const p = new URLSearchParams({
-    client_id: CLIENT_ID, redirect_uri: REDIRECT, response_type: "code", scope: SCOPE,
-    access_type: "offline", prompt: "consent", code_challenge: challenge, code_challenge_method: "S256", state,
-  });
-  location.href = "https://accounts.google.com/o/oauth2/v2/auth?" + p;
-}
-
-async function handleRedirect() {
-  const q = new URLSearchParams(location.search);
-  if (!q.has("code")) return;
-  history.replaceState(null, "", REDIRECT);
-  if (q.get("state") !== store.get("pkce_state")) { log("state 不一致"); return; }
-  const r = await fetch(WORKER + "/exchange", {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ code: q.get("code"), code_verifier: store.get("pkce_verifier"), redirect_uri: REDIRECT }),
-  });
-  const d = await r.json();
-  store.del("pkce_verifier"); store.del("pkce_state");
-  if (!d.refresh_token) { log("交換失敗: " + JSON.stringify(d)); return; }
-  store.set("refresh_token", d.refresh_token);
-  await saveAccess(d.access_token, d.expires_in);
-  log("ログインしました（" + (navigator.standalone || matchMedia("(display-mode: standalone)").matches ? "ホーム画面アプリ" : "ブラウザ") + "）");
-}
-
-async function saveAccess(token, expiresIn) {
-  store.set("access_token", token);
-  store.set("access_exp", String(Date.now() + (expiresIn - 60) * 1000));
-  // Service Worker からも読めるよう Cache API に置く
-  try {
-    const c = await caches.open("auth");
-    await c.put("__token", new Response(token));
-  } catch {}
-}
-
-async function accessToken() {
-  if (store.get("access_token") && Date.now() < Number(store.get("access_exp"))) return store.get("access_token");
-  const rt = store.get("refresh_token");
-  if (!rt) return null;
-  const r = await fetch(WORKER + "/refresh", {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ refresh_token: rt }),
-  });
-  const d = await r.json();
-  if (!d.access_token) { log("更新失敗: " + JSON.stringify(d)); return null; }
-  await saveAccess(d.access_token, d.expires_in);
-  return d.access_token;
-}
-
-async function api(path) {
-  const t = await accessToken();
-  const r = await fetch("https://www.googleapis.com/drive/v3/" + path, { headers: { Authorization: "Bearer " + t } });
-  return r.json();
-}
-
-function rel(iso) {
-  const s = (Date.now() - new Date(iso)) / 1000;
-  if (s < 60) return "たった今";
-  if (s < 3600) return Math.floor(s / 60) + "分前";
-  if (s < 86400) return Math.floor(s / 3600) + "時間前";
-  return Math.floor(s / 86400) + "日前";
-}
-
-async function list(kind) {
-  let q = "trashed=false and mimeType!='application/vnd.google-apps.folder'";
-  if (kind === "media") q += " and (mimeType contains 'video/' or mimeType contains 'audio/')";
-  const d = await api("files?" + new URLSearchParams({
-    q, orderBy: "modifiedTime desc", pageSize: "30", fields: "files(id,name,mimeType,modifiedTime,size)",
-  }));
-  const ul = $("#list"); ul.innerHTML = "";
-  for (const f of d.files || []) {
-    const li = document.createElement("li");
-    li.innerHTML = `<div class="n"></div><div class="m"></div>`;
-    li.querySelector(".n").textContent = f.name;
-    li.querySelector(".m").textContent = `${rel(f.modifiedTime)} · ${f.mimeType}` + (f.size ? ` · ${(f.size / 1048576).toFixed(1)}MB` : "");
-    if (/^(video|audio)\//.test(f.mimeType)) li.onclick = () => play(f);
-    ul.appendChild(li);
-  }
-  if (d.error) log("APIエラー: " + JSON.stringify(d.error));
-}
-
-async function play(f) {
-  await accessToken(); // SW 用のトークンを新しくしておく
-  const isVideo = f.mimeType.startsWith("video/");
-  const el = document.createElement(isVideo ? "video" : "audio");
-  el.controls = true; el.playsInline = true; el.preload = "metadata";
-  el.src = "stream/" + f.id;
-  el.onerror = () => log("再生エラー: " + (el.error && el.error.code));
-  const sel = document.createElement("select");
-  for (const r of [0.75, 1, 1.25, 1.5, 1.8, 2]) sel.add(new Option(r + "x", r, r === 1, r === 1));
-  sel.onchange = () => { el.playbackRate = Number(sel.value); };
-  const row = document.createElement("div"); row.className = "row"; row.append(sel);
-  if (isVideo && document.pictureInPictureEnabled) {
-    const b = document.createElement("button"); b.textContent = "PiP";
-    b.onclick = () => el.requestPictureInPicture().catch((e) => log("PiP: " + e.message));
-    row.append(b);
-  }
-  $("#player").replaceChildren(el, row);
-  if ("mediaSession" in navigator) navigator.mediaSession.metadata = new MediaMetadata({ title: f.name });
-}
-
-async function main() {
-  if ("serviceWorker" in navigator) await navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).catch((e) => log("SW: " + e.message));
-  await handleRedirect();
-  const authed = !!store.get("refresh_token");
-  $("#login").hidden = authed; $("#logout").hidden = !authed; $("#main").hidden = !authed;
-  $("#login").onclick = login;
-  $("#logout").onclick = () => { localStorage.clear(); caches.delete("auth"); location.reload(); };
-  document.querySelectorAll(".tabs button").forEach((b) => b.onclick = () => {
-    document.querySelectorAll(".tabs button").forEach((x) => x.setAttribute("aria-pressed", x === b));
-    list(b.dataset.q);
-  });
-  if (authed) await list("recent");
-}
-main().catch((e) => log("エラー: " + e.message));
-</script>
+<script type="module" src="app/main.js"></script>
 </body>
 </html>
