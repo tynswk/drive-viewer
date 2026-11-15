@@ -566,7 +566,6 @@ function openFile(f, originEl) {
   growFrom(s, originEl);
   docSheet = s;
   history.pushState({ sheet: "doc" }, "");
-  if (f.id === "plan") armUpdate(s);
 }
 function closeDoc(fromTransform) {
   const s = docSheet; if (!s) return;
@@ -644,6 +643,23 @@ function cancelEdit(s, then) {
   if (!isDirty(s)) { leaveEdit(s); then && then(); return; }
   afterDiscard = then || null;
   $("#discard").showModal();
+}
+
+// モック：別の場所（エージェント）での更新を起こす。本文の最初の段落の行を書き換え、末尾に節を足す
+let simCount = 0;
+function simulateRemote(s) {
+  const f = s._file;
+  const lines = (f.remote ?? f.body).split("\n");
+  const i = lines.findIndex((l, k) => k > 0 && l.trim() && !l.startsWith("#") && !l.startsWith("|") && !l.startsWith("```"));
+  if (i > 0) lines[i] = lines[i] + "（相手が書き換え）";
+  simCount++;
+  f.rv++; f.remote = lines.join("\n") + `\n## 相手の追記 ${simCount}\n\nエージェントが書き足した段落。\n`;
+  if (s._editing) { toast(`${f.name} が別の場所で更新されました`); return; }
+  toast(`${f.name} が更新されました`, "再読込", () => {
+    f.body = f.remote; f.t = Date.now();
+    $(".meta", s).textContent = `今に更新 ・ ${f.size}`; $(".meta", s).classList.add("fresh");
+    renderBody(s, 0); setSeg(s, 0);
+  });
 }
 
 /* ===================== 衝突：3方向マージ ===================== */
@@ -900,9 +916,11 @@ document.addEventListener("click", (e) => {
       const f = s._file, m = $("#moreMenu");
       m.innerHTML = `<div class="path">${esc("マイドライブ/" + f.path + "/" + f.name)}</div><hr>
         <button data-act="copy">${icon("i-link")}リンクをコピー</button>
-        <button data-act="drive">${icon("i-external")}Driveで開く</button>`;
+        <button data-act="drive">${icon("i-external")}Driveで開く</button>
+        ${["md", "code"].includes(f.kind) ? `<hr><button data-act="sim">${icon("i-clock")}相手の更新を起こす（モック）</button>` : ""}`;
       m.showPopover(); break;
     }
+    case "sim": $("#moreMenu").hidePopover(); if (docSheet) simulateRemote(docSheet); break;
     case "copy": $("#moreMenu").hidePopover(); toast("リンクをコピーしました"); break;
     case "drive": $("#moreMenu").hidePopover(); toast("モックなので開きません"); break;
   }
