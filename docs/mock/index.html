@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#1b1e23" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>Drive Viewer モック</title>
 <style>
@@ -29,9 +29,9 @@
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --paper: #1b1e23; --paper-2: #24282e; --ink: #e9eaec; --ink-2: #9aa1ab;
-    --line: #2e333a; --fresh: #e3a23f; --focus: #7aa7ff;
-    --shadow: 0 10px 30px rgba(0,0,0,.5), 0 0 0 1px var(--line);
+    --paper: #000000; --paper-2: #16171a; --ink: #ececee; --ink-2: #93979f;
+    --line: #232428; --fresh: #e3a23f; --focus: #7aa7ff;
+    --shadow: 0 10px 30px rgba(0,0,0,.8), 0 0 0 1px #2c2d32;
   }
 }
 @media (prefers-reduced-motion: reduce) { :root { --t: 0ms; --t-fast: 0ms; } }
@@ -198,7 +198,7 @@ body.has-mini .sheet:not(.media) .scroll { padding-bottom: calc(var(--mini) + en
 .sheet.media { z-index: 20; }
 .sheet.media.mini {
   inset: auto 8px calc(var(--bar) + env(safe-area-inset-bottom) + 8px) 8px;
-  height: var(--mini); border-radius: 12px; box-shadow: var(--shadow);
+  height: var(--mini); border-radius: 12px; box-shadow: var(--shadow); background: var(--paper-2);
   flex-direction: row; align-items: center; touch-action: none;
 }
 body.sheet-open .sheet.media.mini { bottom: calc(env(safe-area-inset-bottom) + 8px); }
