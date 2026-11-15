@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#16181c">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<title>Drive Viewer</title>
+<style>
+  :root { --bg:#16181c; --fg:#e8e8ea; --sub:#8b8f98; --line:#2a2d33; --acc:#5b9cff; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 -apple-system, system-ui, sans-serif;
+         padding: env(safe-area-inset-top) 16px env(safe-area-inset-bottom); }
+  header { display:flex; align-items:center; gap:8px; padding:12px 0; }
+  header h1 { font-size:17px; margin:0; flex:1; }
+  button, select { background:#22252b; color:var(--fg); border:1px solid var(--line); border-radius:8px; padding:8px 12px; font:inherit; }
+  button:active { background:#2c3038; }
+  ul { list-style:none; margin:0; padding:0; }
+  li { padding:10px 0; border-bottom:1px solid var(--line); cursor:pointer; }
+  li .n { word-break:break-all; }
+  li .m { color:var(--sub); font-size:12px; }
+  #log { color:var(--sub); font-size:12px; white-space:pre-wrap; margin-top:12px; }
+  #player { margin:12px 0; }
+  video, audio { width:100%; background:#000; border-radius:8px; }
+  .row { display:flex; gap:8px; align-items:center; margin-top:8px; }
+  .tabs { display:flex; gap:8px; margin-bottom:8px; }
+  .tabs button[aria-pressed="true"] { border-color:var(--acc); color:var(--acc); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Drive Viewer <span style="color:var(--sub);font-weight:normal;font-size:12px">P0</span></h1>
+  <button id="login" hidden>ログイン</button>
+  <button id="logout" hidden>ログアウト</button>
+</header>
+
+<div id="main" hidden>
+  <div class="tabs">
+    <button data-q="recent" aria-pressed="true">最近</button>
+    <button data-q="media">動画・音声</button>
+  </div>
+  <div id="player"></div>
+  <ul id="list"></ul>
+</div>
+<div id="log"></div>
+
+<script>
+const CLIENT_ID = "591925567747-l2hgpfep4qvme7c5tdhh9mnal8nub2h1.apps.googleusercontent.com";
+const WORKER = "https://drive-viewer-auth.tynswk.workers.dev";
+const REDIRECT = location.origin + location.pathname.replace(/index\.html$/, "");
+const SCOPE = "https://www.googleapis.com/auth/drive";
+const $ = (s) => document.querySelector(s);
+const log = (m) => { $("#log").textContent += m + "\n"; };
+
+const store = {
+  get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch {} },
+  del(k) { try { localStorage.removeItem(k); } catch {} },
+};
+
+function b64url(buf) {
+  return btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+async function login() {
+  const verifier = b64url(crypto.getRandomValues(new Uint8Array(32)));
+  const challenge = b64url(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier)));
+  const state = b64url(crypto.getRandomValues(new Uint8Array(16)));
+  store.set("pkce_verifier", verifier);
+  store.set("pkce_state", state);
+  const p = new URLSearchParams({
+    client_id: CLIENT_ID, redirect_uri: REDIRECT, response_type: "code", scope: SCOPE,
+    access_type: "offline", prompt: "consent", code_challenge: challenge, code_challenge_method: "S256", state,
+  });
+  location.href = "https://accounts.google.com/o/oauth2/v2/auth?" + p;
+}
+
+async function handleRedirect() {
+  const q = new URLSearchParams(location.search);
+  if (!q.has("code")) return;
+  history.replaceState(null, "", REDIRECT);
+  if (q.get("state") !== store.get("pkce_state")) { log("state 不一致"); return; }
+  const r = await fetch(WORKER + "/exchange", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ code: q.get("code"), code_verifier: store.get("pkce_verifier"), redirect_uri: REDIRECT }),
+  });
+  const d = await r.json();
+  store.del("pkce_verifier"); store.del("pkce_state");
+  if (!d.refresh_token) { log("交換失敗: " + JSON.stringify(d)); return; }
+  store.set("refresh_token", d.refresh_token);
+  await saveAccess(d.access_token, d.expires_in);
+  log("ログインしました（" + (navigator.standalone || matchMedia("(display-mode: standalone)").matches ? "ホーム画面アプリ" : "ブラウザ") + "）");
+}
+
+async function saveAccess(token, expiresIn) {
+  store.set("access_token", token);
+  store.set("access_exp", String(Date.now() + (expiresIn - 60) * 1000));
+  // Service Worker からも読めるよう Cache API に置く
+  try {
+    const c = await caches.open("auth");
+    await c.put("__token", new Response(token));
+  } catch {}
+}
+
+async function accessToken() {
+  if (store.get("access_token") && Date.now() < Number(store.get("access_exp"))) return store.get("access_token");
+  const rt = store.get("refresh_token");
+  if (!rt) return null;
+  const r = await fetch(WORKER + "/refresh", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ refresh_token: rt }),
+  });
+  const d = await r.json();
+  if (!d.access_token) { log("更新失敗: " + JSON.stringify(d)); return null; }
+  await saveAccess(d.access_token, d.expires_in);
+  return d.access_token;
+}
+
+async function api(path) {
+  const t = await accessToken();
+  const r = await fetch("https://www.googleapis.com/drive/v3/" + path, { headers: { Authorization: "Bearer " + t } });
+  return r.json();
+}
+
+function rel(iso) {
+  const s = (Date.now() - new Date(iso)) / 1000;
+  if (s < 60) return "たった今";
+  if (s < 3600) return Math.floor(s / 60) + "分前";
+  if (s < 86400) return Math.floor(s / 3600) + "時間前";
+  return Math.floor(s / 86400) + "日前";
+}
+
+async function list(kind) {
+  let q = "trashed=false and mimeType!='application/vnd.google-apps.folder'";
+  if (kind === "media") q += " and (mimeType contains 'video/' or mimeType contains 'audio/')";
+  const d = await api("files?" + new URLSearchParams({
+    q, orderBy: "modifiedTime desc", pageSize: "30", fields: "files(id,name,mimeType,modifiedTime,size)",
+  }));
+  const ul = $("#list"); ul.innerHTML = "";
+  for (const f of d.files || []) {
+    const li = document.createElement("li");
+    li.innerHTML = `<div class="n"></div><div class="m"></div>`;
+    li.querySelector(".n").textContent = f.name;
+    li.querySelector(".m").textContent = `${rel(f.modifiedTime)} · ${f.mimeType}` + (f.size ? ` · ${(f.size / 1048576).toFixed(1)}MB` : "");
+    if (/^(video|audio)\//.test(f.mimeType)) li.onclick = () => play(f);
+    ul.appendChild(li);
+  }
+  if (d.error) log("APIエラー: " + JSON.stringify(d.error));
+}
+
+async function play(f) {
+  await accessToken(); // SW 用のトークンを新しくしておく
+  const isVideo = f.mimeType.startsWith("video/");
+  const el = document.createElement(isVideo ? "video" : "audio");
+  el.controls = true; el.playsInline = true; el.preload = "metadata";
+  el.src = "stream/" + f.id;
+  el.onerror = () => log("再生エラー: " + (el.error && el.error.code));
+  const sel = document.createElement("select");
+  for (const r of [0.75, 1, 1.25, 1.5, 1.8, 2]) sel.add(new Option(r + "x", r, r === 1, r === 1));
+  sel.onchange = () => { el.playbackRate = Number(sel.value); };
+  const row = document.createElement("div"); row.className = "row"; row.append(sel);
+  if (isVideo && document.pictureInPictureEnabled) {
+    const b = document.createElement("button"); b.textContent = "PiP";
+    b.onclick = () => el.requestPictureInPicture().catch((e) => log("PiP: " + e.message));
+    row.append(b);
+  }
+  $("#player").replaceChildren(el, row);
+  if ("mediaSession" in navigator) navigator.mediaSession.metadata = new MediaMetadata({ title: f.name });
+}
+
+async function main() {
+  if ("serviceWorker" in navigator) await navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).catch((e) => log("SW: " + e.message));
+  await handleRedirect();
+  const authed = !!store.get("refresh_token");
+  $("#login").hidden = authed; $("#logout").hidden = !authed; $("#main").hidden = !authed;
+  $("#login").onclick = login;
+  $("#logout").onclick = () => { localStorage.clear(); caches.delete("auth"); location.reload(); };
+  document.querySelectorAll(".tabs button").forEach((b) => b.onclick = () => {
+    document.querySelectorAll(".tabs button").forEach((x) => x.setAttribute("aria-pressed", x === b));
+    list(b.dataset.q);
+  });
+  if (authed) await list("recent");
+}
+main().catch((e) => log("エラー: " + e.message));
+</script>
+</body>
+</html>

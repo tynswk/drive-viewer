@@ -1,0 +1,9 @@
+name = "drive-viewer-auth"
+main = "src/index.js"
+compatibility_date = "2026-11-01"
+account_id = "86f3542d336644af86a450725b5c7fe6"
+workers_dev = true
+
+[vars]
+GOOGLE_CLIENT_ID = "591925567747-l2hgpfep4qvme7c5tdhh9mnal8nub2h1.apps.googleusercontent.com"
+# GOOGLE_CLIENT_SECRET は `wrangler secret put` で入れる（ファイルに書かない）
